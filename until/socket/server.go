@@ -47,10 +47,11 @@ type Server struct {
 //NewServer create a Server instance with conf
 func NewServer(conf *Config) *Server {
     s := &Server{
-        config: conf,
-        conns:  NewConnMap(),
-        secert: conf.Secert,
-        lock:   &sync.RWMutex{},
+        config:  conf,
+        conns:   NewConnMap(),
+        secert:  conf.Secert,
+        lock:    &sync.RWMutex{},
+        epoller: make([]*epoll, 0),
     }
     s.ctx, s.cancel = context.WithCancel(conf.Ctx)
     s.SetName(fmt.Sprint(s))

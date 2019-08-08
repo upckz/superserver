@@ -1,5 +1,3 @@
-// +build linux
-
 package socket
 
 import (

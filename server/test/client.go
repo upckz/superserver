@@ -4,15 +4,15 @@ import (
     "context"
     "flag"
     "fmt"
+    "github.com/koangel/grapeTimer"
+    "net/http"
+    _ "net/http/pprof"
     "os"
     "runtime"
-    "time"
-    //_ "net/http/pprof"
-    //"net/http"
-    "github.com/koangel/grapeTimer"
     "superserver/until/common"
     log "superserver/until/czlog"
     "superserver/until/socket"
+    "time"
 )
 
 //cpu 自动确认使用核数
@@ -73,8 +73,8 @@ func (s *Server) Run() {
     }
     go s.runRead()
 
-    for i := 0; i < 20000; i++ {
-        s.cliMgr.AddClientWith(cfg, s.cfg.SvrID*2000000) //server作为客户端 ，管理所有的客户端连接请求, 是否加密访问
+    for i := 0; i < 10000; i++ {
+        s.cliMgr.AddClientWith(cfg, s.cfg.SvrID*200000) //server作为客户端 ，管理所有的客户端连接请求, 是否加密访问
 
     }
 }
@@ -114,11 +114,17 @@ func main() {
         }
     }()
 
+    go func() {
+        if err := http.ListenAndServe(":6060", nil); err != nil {
+            log.Fatalf("pprof failed: %v", err)
+        }
+    }()
+
     logPath := flag.String("log", "./log/", "path for log file directory")
     strIp := flag.String("ip", "172.16.10.51", "listen ip")
     //strIp := flag.String("ip", "192.168.56.101", "listen ip")
     strPort := flag.Int("port", 9100, "listen port")
-    svid := flag.Int("svid", 0, "server svid. start from 1")
+    svid := flag.Int("svid", 1, "server svid. start from 1")
 
     flag.Parse()
 

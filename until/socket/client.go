@@ -177,7 +177,6 @@ func (c *Client) Connect() {
             c.Close()
             return
         }
-
         if c.secert == true {
             err := c.BulidConntinon()
             if err != nil {
@@ -191,6 +190,7 @@ func (c *Client) Connect() {
         c.SetName(fmt.Sprintf("client [id:%d->%v]", c.id, c.addr))
         c.instance.AddMapCli(c)
         c.SendHeartbeatMsg()
+
         go c.RecvLoop()
 
     })
@@ -293,7 +293,7 @@ func (cw *Client) RecvLoop() {
         if p := recover(); p != nil {
             log.Errorln(cw.name + " " + common.GlobalPanicLog(p))
         }
-        cw.cancel()
+
         log.Debugln(cw.name + "runWrite go-routine exited")
         cw.Close()
     }()
@@ -303,6 +303,11 @@ func (cw *Client) RecvLoop() {
     }
     rclose := make(chan int, 1)
     go func() {
+
+        defer func() {
+            rclose <- 1
+        }()
+
         var buf = make([]byte, 1024*64)
         for {
             n, err := cw.conn.Read(buf)
@@ -335,7 +340,6 @@ func (cw *Client) RecvLoop() {
                 }
             }
         }
-        rclose <- 1
     }()
 
     for {
@@ -357,8 +361,10 @@ func (cw *Client) RecvLoop() {
                     return
                 }
             }
+
         case <-rclose:
             return
+
         }
     }
 }
@@ -375,7 +381,7 @@ func (cw *Client) ProcessDoneMsg(msg *Message) int {
 }
 
 func (c *Client) Close() {
-
+    c.cancel()
     c.instance.OnCloseCli(c)
     if c.conn != nil {
         log.Errorf("client[%d] [%s] close! ", c.id, c.conn.RemoteAddr().String())
@@ -421,7 +427,6 @@ func (cw *Client) ProcessTimeOut(timeType int) {
                 go cw.Connect()
             }()
         }
-    default:
     }
 }
 

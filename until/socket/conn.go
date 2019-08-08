@@ -71,10 +71,6 @@ func (cw *TCPConn) GetConn() net.Conn {
     return cw.rawConn
 }
 
-func (cw *TCPConn) GetEpoller() *epoll {
-    return cw.epoller
-}
-
 // GetFD returns net ID of server connection.
 func (cw *TCPConn) GetFD() int {
     return cw.fd
