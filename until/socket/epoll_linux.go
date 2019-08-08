@@ -3,18 +3,16 @@
 package socket
 
 import (
-	
+	"golang.org/x/sys/unix"
 	"net"
 	"reflect"
 	"sync"
 	"syscall"
-	"golang.org/x/sys/unix"
 )
 
 type epoll struct {
-	fd          int
-	connections map[int]net.Conn
-	lock        *sync.RWMutex
+	fd   int
+	lock *sync.RWMutex
 }
 
 func MkEpoll() (*epoll, error) {
@@ -23,60 +21,57 @@ func MkEpoll() (*epoll, error) {
 		return nil, err
 	}
 	return &epoll{
-		fd:          fd,
-		lock:        &sync.RWMutex{},
-		connections: make(map[int]net.Conn),
+		fd:   fd,
+		lock: &sync.RWMutex{},
 	}, nil
 }
 
-func (e *epoll) Add(conn net.Conn) (int, error) {
-	// Extract file descriptor associated with the connection
-	fd := socketFD(conn)
-	err := unix.EpollCtl(e.fd, syscall.EPOLL_CTL_ADD, fd, &unix.EpollEvent{Events: unix.POLLIN | unix.POLLHUP, Fd: int32(fd)})
-	if err != nil {
-		return fd, err
-	}
-	e.lock.Lock()
-	defer e.lock.Unlock()
-	e.connections[fd] = conn
-	//if len(e.connections)%100 == 0 {
-	//	log.Printf("total number of connections: %v", len(e.connections))
-	//}
-	return fd, nil
+func (e *epoll) Close() error {
+	return unix.Close(e.fd)
 }
 
-func (e *epoll) Remove(conn net.Conn) (error) {
-	fd := socketFD(conn)
+func (e *epoll) Add(fd int) error {
+
+	if err := unix.SetNonblock(fd, true); err != nil {
+		return err
+	}
+	// Extract file descriptor associated with the connection
+	err := unix.EpollCtl(e.fd, syscall.EPOLL_CTL_ADD, fd, &unix.EpollEvent{Events: unix.POLLIN | unix.POLLHUP, Fd: int32(fd)})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (e *epoll) Remove(fd int) error {
 	err := unix.EpollCtl(e.fd, syscall.EPOLL_CTL_DEL, fd, nil)
 	if err != nil {
 		return err
 	}
-	e.lock.Lock()
-	defer e.lock.Unlock()
-	delete(e.connections, fd)
-	//if len(e.connections)%100 == 0 {
-	//	log.Printf("total number of connections: %v", len(e.connections))
-	//}
-	return  nil
+	return nil
 }
 
-func (e *epoll) Wait() ([]net.Conn, []int, error) {
-	events := make([]unix.EpollEvent, 100)
-	n, err := unix.EpollWait(e.fd, events, 100)
+func (e *epoll) Wait() ([]int, error) {
+
+	var fds []int
+
+	events := make([]unix.EpollEvent, 256)
+	n, err := unix.EpollWait(e.fd, events, 256)
 	if err != nil {
-		return nil, nil, err
+		return fds, err
 	}
 	e.lock.RLock()
 	defer e.lock.RUnlock()
 
-	var connections []net.Conn
-	var fds []int
 	for i := 0; i < n; i++ {
-		conn := e.connections[int(events[i].Fd)]
-		connections = append(connections, conn)
+		ev := &events[i]
+		if ev.Events == 0 {
+			continue
+		}
 		fds = append(fds, int(events[i].Fd))
+
 	}
-	return connections, fds, nil
+	return fds, nil
 }
 
 func socketFD(conn net.Conn) int {

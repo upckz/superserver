@@ -12,6 +12,7 @@ import (
     "superserver/until/socket"
     "superserver/until/common"
     log "superserver/until/czlog"
+    "github.com/koangel/grapeTimer"
 
 )
 
@@ -73,7 +74,7 @@ func NewServer(cfg *Config) *Server {
         Port:               cfg.Port,
         MsgCh:              s.readCh,
         HbTimeout:          15,
-        Secert:             true,
+        Secert:             false,
         Ctx:                s.ctx,
         EpollNum:           10,
         OnConnect: func(netid int){
@@ -88,6 +89,12 @@ func NewServer(cfg *Config) *Server {
 }
 
 func (s *Server)  Run() {
+
+    //开启定时器500 ms 单位轮询
+    grapeTimer.InitGrapeScheduler(100*time.Microsecond, true)
+    grapeTimer.CDebugMode = false  //设置启用日志调试模式，建议正式版本关闭他
+    grapeTimer.UseAsyncExec = true  //开启异步调度模式，在此模式下 timer执行时会建立一个go，不会阻塞其他timer执行调度，建议开启
+
     go s.internalSvrInstance.Run()
     go s.dispatchClientMsg()
 }

@@ -15,6 +15,7 @@ var (
     ErrBadData       = errors.New("more than 8M data")
     ErrNotRegistered = errors.New("handler not registered")
     ErrServerClosed  = errors.New("server has been closed")
+    ErrClosedPoll    = errors.New("closed for poll")
 )
 
 const(
