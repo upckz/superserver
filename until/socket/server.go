@@ -9,6 +9,7 @@ import (
 
     "superserver/until/common"
     log "superserver/until/czlog"
+    "superserver/until/epoll"
 
     "github.com/libp2p/go-reuseport"
     "syscall"
@@ -23,7 +24,7 @@ const (
 type Config struct {
     IP        string
     Port      int32
-    MsgCh     chan *MessageWrapper
+    MsgCh     chan *common.MessageWrapper
     OnConnect OnConnectFunc
     OnClose   OnCloseFunc
     EpollNum  int32
@@ -40,8 +41,10 @@ type Server struct {
     ctx     context.Context
     cancel  context.CancelFunc
     secert  bool
-    epoller []*epoll
+    epoller []*epoll.Epoll
     lock    *sync.RWMutex
+
+    listener net.Listener
 }
 
 //NewServer create a Server instance with conf
@@ -51,7 +54,7 @@ func NewServer(conf *Config) *Server {
         conns:   NewConnMap(),
         secert:  conf.Secert,
         lock:    &sync.RWMutex{},
-        epoller: make([]*epoll, 0),
+        epoller: make([]*epoll.Epoll, 0),
     }
     s.ctx, s.cancel = context.WithCancel(conf.Ctx)
     s.SetName(fmt.Sprint(s))
@@ -77,14 +80,15 @@ func (s *Server) startEpoll() {
 
     addr := s.config.IP + ":" + strconv.Itoa(int(s.config.Port))
 
-    ln, err := reuseport.Listen("tcp", addr)
+    var err error
+    s.listener, err = reuseport.Listen("tcp", addr)
     if err != nil {
         log.Errorf("Error:%v", err)
         panic(err)
         return
     }
 
-    epoller, err := MkEpoll()
+    epoller, err := epoll.MkEpoll()
     if err != nil {
         log.Errorf("Error:%v", err)
         panic(err)
@@ -93,12 +97,12 @@ func (s *Server) startEpoll() {
 
     s.insertEpoll(epoller)
 
-    log.Infof("Sever[%s] start listen on: %v", s.name, ln.Addr())
+    log.Infof("Sever[%s] start listen on: %v", s.name, s.listener.Addr())
 
     go s.Start(epoller)
 
     for {
-        conn, e := ln.Accept()
+        conn, e := s.listener.Accept()
         if e != nil {
             if ne, ok := e.(net.Error); ok && ne.Temporary() {
                 log.Errorf("accept temp err: %v", ne)
@@ -108,7 +112,7 @@ func (s *Server) startEpoll() {
             log.Errorf("accept err: %v", e)
             return
         }
-        fd := socketFD(conn)
+        fd := epoll.SocketFD(conn)
 
         sc := NewTCPConn(fd, conn, s, epoller)
         s.AddConn(fd, sc)
@@ -118,12 +122,12 @@ func (s *Server) startEpoll() {
             log.Errorf("failed to add connection %v", err)
             sc.Close()
         }
-        log.Infof("New connection connId[%d] incoming <%v>", fd, conn.RemoteAddr())
+        log.Infof("New connection fd[%d] incoming <%v>", fd, conn.RemoteAddr())
     }
 
 }
 
-func (s *Server) Start(epoller *epoll) {
+func (s *Server) Start(epoller *epoll.Epoll) {
     defer func() {
         log.Debugf("exit start")
         s.Close()
@@ -140,9 +144,12 @@ func (s *Server) Start(epoller *epoll) {
             fd := fds[i]
             sc, ok := s.GetConn(fd)
             if ok {
-                sc.DoRecv()
+                err = sc.DoRecv()
+                if err == nil {
+                    epoller.Mode(fd)
+                }
             } else {
-                log.Errorf("connId[%d] not find int server aaaaaaaa", fd)
+                log.Errorf("fd[%d] not find int server aaaaaaaa", fd)
             }
         }
         select {
@@ -166,7 +173,7 @@ func (s *Server) Run() {
 
 }
 
-func (s *Server) insertEpoll(epoller *epoll) {
+func (s *Server) insertEpoll(epoller *epoll.Epoll) {
     s.lock.Lock()
     defer s.lock.Unlock()
     s.epoller = append(s.epoller, epoller)
@@ -178,7 +185,7 @@ func (s *Server) SetName(name string) {
 }
 
 // Unicast unicasts message to a specified conn.
-func (s *Server) SendClientMsg(id int, msg *Message) error {
+func (s *Server) SendClientMsg(id int, msg *common.Message) error {
     c, ok := s.conns.Get(id)
     if ok {
         return c.Write(msg)
@@ -187,7 +194,7 @@ func (s *Server) SendClientMsg(id int, msg *Message) error {
 }
 
 // Broadcast broadcasts message to all server connections managed.
-func (s *Server) Broadcast(msg *Message) {
+func (s *Server) Broadcast(msg *common.Message) {
     conns := s.conns.GetAll()
     for _, c := range conns {
         if err := c.Write(msg); err != nil {
@@ -217,7 +224,7 @@ func (s *Server) Close() {
     for _, epoller := range s.epoller {
         epoller.Close()
     }
-
+    s.listener.Close()
     log.Debugln("Server Has Close")
 }
 

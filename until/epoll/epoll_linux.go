@@ -1,4 +1,4 @@
-package socket
+package epoll
 
 import (
 	"golang.org/x/sys/unix"
@@ -8,27 +8,27 @@ import (
 	"syscall"
 )
 
-type epoll struct {
+type Epoll struct {
 	fd   int
 	lock *sync.RWMutex
 }
 
-func MkEpoll() (*epoll, error) {
+func MkEpoll() (*Epoll, error) {
 	fd, err := unix.EpollCreate1(0)
 	if err != nil {
 		return nil, err
 	}
-	return &epoll{
+	return &Epoll{
 		fd:   fd,
 		lock: &sync.RWMutex{},
 	}, nil
 }
 
-func (e *epoll) Close() error {
+func (e *Epoll) Close() error {
 	return unix.Close(e.fd)
 }
 
-func (e *epoll) Add(fd int) error {
+func (e *Epoll) Add(fd int) error {
 
 	if err := unix.SetNonblock(fd, true); err != nil {
 		return err
@@ -41,7 +41,16 @@ func (e *epoll) Add(fd int) error {
 	return nil
 }
 
-func (e *epoll) Remove(fd int) error {
+func (e *Epoll) Mode(fd int) error {
+
+	err := unix.EpollCtl(e.fd, syscall.EPOLL_CTL_MOD, fd, &unix.EpollEvent{Events: unix.POLLIN | unix.POLLHUP, Fd: int32(fd)})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (e *Epoll) Remove(fd int) error {
 	err := unix.EpollCtl(e.fd, syscall.EPOLL_CTL_DEL, fd, nil)
 	if err != nil {
 		return err
@@ -49,7 +58,7 @@ func (e *epoll) Remove(fd int) error {
 	return nil
 }
 
-func (e *epoll) Wait() ([]int, error) {
+func (e *Epoll) Wait() ([]int, error) {
 
 	var fds []int
 
@@ -58,8 +67,6 @@ func (e *epoll) Wait() ([]int, error) {
 	if err != nil {
 		return fds, err
 	}
-	e.lock.RLock()
-	defer e.lock.RUnlock()
 
 	for i := 0; i < n; i++ {
 		ev := &events[i]
@@ -72,7 +79,7 @@ func (e *epoll) Wait() ([]int, error) {
 	return fds, nil
 }
 
-func socketFD(conn net.Conn) int {
+func SocketFD(conn net.Conn) int {
 	//tls := reflect.TypeOf(conn.UnderlyingConn()) == reflect.TypeOf(&tls.Conn{})
 	// Extract the file descriptor associated with the connection
 	//connVal := reflect.Indirect(reflect.ValueOf(conn)).FieldByName("conn").Elem()

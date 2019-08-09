@@ -9,9 +9,10 @@ import (
     _ "net/http/pprof"
     "os"
     "runtime"
+    "superserver/example/epoller_client"
     "superserver/until/common"
     log "superserver/until/czlog"
-    "superserver/until/socket"
+    "superserver/until/epoll"
     "time"
 )
 
@@ -33,12 +34,12 @@ type Config struct {
     IP        string
     Port      int32
     Gameid    int32
-    HbTimeout time.Duration
+    HbTimeout int
 }
 
 type Server struct {
     sigCh  chan os.Signal
-    cliMgr *socket.Instance
+    cliMgr *epoller_client.Instance
     cfg    *Config
     sendCh chan *common.ResponseWrapper
     readCh chan *common.MessageWrapper
@@ -57,26 +58,71 @@ func NewServer(cfg *Config) *Server {
 
     s.ctx, s.cancel = context.WithCancel(context.Background())
 
-    s.cliMgr = socket.NewClientInstance(s.ctx, 3000)
+    s.cliMgr = epoller_client.NewClientInstance(s.ctx, 3000)
 
     return s
 }
 
-func (s *Server) Run() {
+func (s *Server) mkClient() {
+    epoller, err := epoll.MkEpoll()
+    if err != nil {
+        panic(err)
+    }
 
-    cfg := &socket.ConfigOfClient{
-        HeartTimer:    7,
+    cfg := &epoller_client.ConfigOfClient{
+        HbTimeout:     20,
         Ip:            s.cfg.IP,
         Port:          s.cfg.Port,
         Secert:        false,
         ReconnectFlag: false,
     }
-    go s.runRead()
+
+    go s.Start(epoller)
 
     for i := 0; i < 20000; i++ {
-        s.cliMgr.AddClientWith(cfg, s.cfg.SvrID*200000) //server作为客户端 ，管理所有的客户端连接请求, 是否加密访问
+        s.cliMgr.AddClientWith(cfg, epoller, s.cfg.SvrID*200000) //server作为客户端 ，管理所有的客户端连接请求, 是否加密访问
 
     }
+
+}
+
+func (s *Server) Start(epoller *epoll.Epoll) {
+    defer func() {
+        log.Debugf("exit start")
+    }()
+
+    for {
+        fds, err := epoller.Wait()
+        if err != nil {
+            log.Errorf("failed to epoll wait %v", err)
+            continue
+        }
+        nums := len(fds)
+        for i := 0; i < nums; i++ {
+            fd := fds[i]
+            client := s.cliMgr.GetMapCli(fd)
+            if client != nil {
+                client.Recv()
+                // if err == nil {
+                //     epoller.Mode(fd)
+                // }
+            } else {
+                log.Errorf("fd[%d] not find int server aaaaaaaa", fd)
+            }
+        }
+        select {
+        case <-s.ctx.Done():
+            return
+        default:
+        }
+    }
+}
+
+func (s *Server) Run() {
+
+    go s.runRead()
+
+    s.mkClient()
 }
 
 func (s *Server) runRead() {

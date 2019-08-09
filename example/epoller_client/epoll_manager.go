@@ -1,11 +1,13 @@
-package socket
+package epoller_client
 
 import (
     "context"
+    "errors"
     "fmt"
     "github.com/orcaman/concurrent-map"
     "superserver/until/common"
     log "superserver/until/czlog"
+    "superserver/until/epoll"
 )
 
 type CliMsgWrapper struct {
@@ -23,7 +25,7 @@ type ConfigOfClient struct {
     Level         int32  //场次等级
     Secert        bool   //通讯是否加密
     ReconnectFlag bool   //是否重连
-    HeartTimer    int32  //heaer time 心跳时间间隔
+    HbTimeout     int32  //heaer time 心跳时间间隔
 }
 
 type Instance struct {
@@ -31,8 +33,6 @@ type Instance struct {
     clientOnConnectCh chan int            //同时建立连接数
     clientReadCh      chan *CliMsgWrapper //读chan 大小
     clientWriteCh     chan *CliMsgWrapper //写chan 大小
-    ctx               context.Context
-    cancel            context.CancelFunc
     netIdentifier     *common.AtomicUint64
 }
 
@@ -43,49 +43,54 @@ func NewClientInstance(ctx context.Context, dataSize int32) *Instance {
     }
     i := &Instance{
         clientMap:         cmap.New(),
-        clientOnConnectCh: make(chan int, 1000),
+        clientOnConnectCh: make(chan int, 100),
         clientReadCh:      make(chan *CliMsgWrapper, dataSize),
         clientWriteCh:     make(chan *CliMsgWrapper, dataSize),
         netIdentifier:     common.NewAtomicUint64(1),
     }
-    i.ctx, i.cancel = context.WithCancel(ctx)
 
     return i
 }
 
 //add client
-func (i *Instance) AddClientWith(cfg *ConfigOfClient, nn int32) {
+func (i *Instance) AddClientWith(cfg *ConfigOfClient, epoller *epoll.Epoll, nn int32) error {
+
     idx := i.netIdentifier.GetAndIncrement() + uint64(nn)
-    cli := NewClient(i.ctx, int(idx))
-    cli.SetSecert(cfg.Secert)
-    cli.SetAddr(fmt.Sprintf("%s:%d", cfg.Ip, cfg.Port))
-    cli.SetHbTimer(cfg.HeartTimer)
-    cli.SetSvrType(cfg.ServerType)
-    cli.SetSvid(cfg.Svid)
-    cli.SetGameid(cfg.Gameid)
-    cli.SetLevel(cfg.Level)
-    cli.SetNeedReconnectFlag(cfg.ReconnectFlag)
-    cli.SetInstance(i)
-    cli.Connect()
+    cli := NewClient(i, cfg, epoller, idx)
+    if cli != nil {
+        return i.AddMapCli(cli)
+    }
+    return errors.New("add client error")
 }
 
 func (i *Instance) LenMapCli() int32 {
     return int32(i.clientMap.Count())
 }
 
-func (i *Instance) AddMapCli(cli *Client) {
+func (i *Instance) AddMapCli(cli *Client) error {
     if cli != nil {
-        idx := cli.GetID()
-        key := fmt.Sprint(idx)
+        fd := cli.GetFD()
+        if err := cli.Epoller.Add(fd); err != nil {
+            cli.Close()
+            return err
+        }
+
+        key := fmt.Sprint(fd)
         i.clientMap.Set(key, cli)
     }
+    return nil
 }
 
-func (i *Instance) RemoveMapCli(cli *Client) {
+func (i *Instance) RemoveMapCli(cli *Client) error {
     if cli != nil {
-        key := fmt.Sprint(cli.GetID())
+        fd := cli.GetFD()
+        if err := cli.Epoller.Remove(fd); err != nil {
+            return err
+        }
+        key := fmt.Sprint(fd)
         i.clientMap.Remove(key)
     }
+    return nil
 }
 
 func (i *Instance) OnCloseCli(cli *Client) {
@@ -95,12 +100,12 @@ func (i *Instance) OnCloseCli(cli *Client) {
 }
 func (i *Instance) NoticeToConnect(cli *Client) {
     if cli != nil {
-        i.clientOnConnectCh <- cli.GetID()
+        i.clientOnConnectCh <- cli.GetFD()
     }
 }
 
-func (i *Instance) GetMapCli(idx int) *Client {
-    key := fmt.Sprint(idx)
+func (i *Instance) GetMapCli(fd int) *Client {
+    key := fmt.Sprint(fd)
     cli, ok := i.clientMap.Get(key)
     if ok {
         return cli.(*Client)
@@ -225,7 +230,7 @@ func (i *Instance) WritePacket(pkt *CliMsgWrapper) (bool, int) {
         }
         if cli != nil {
             cli.SendMessage(pkt.Msg)
-            return true, cli.GetID()
+            return true, cli.GetFD()
         }
     }
     return false, 0
@@ -233,8 +238,6 @@ func (i *Instance) WritePacket(pkt *CliMsgWrapper) (bool, int) {
 
 //close
 func (i *Instance) Close() {
-
-    i.cancel()
     for item := range i.clientMap.IterBuffered() {
         val := item.Val
         if val == nil {

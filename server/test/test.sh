@@ -1,4 +1,2 @@
-PATH=$PATH:$HOME/bin
-export GOROOT=/usr/local/go
-export GOPATH=$PATH:$GOROOT/bin:/root/superserver/
+export GOPATH=$GOPATH:$HOME/superserver
 go run main.go

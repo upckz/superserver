@@ -1,8 +1,8 @@
 package socket
 
-
 import (
     "errors"
+    "superserver/until/common"
 )
 
 var (
@@ -18,12 +18,10 @@ var (
     ErrClosedPoll    = errors.New("closed for poll")
 )
 
-const(
-    HEAET_TIMER_OUT = iota
+const (
+    HEAET_TIMER_OUT     = iota
     RECONNECT_TIMER_OUT = 1
-
 )
-
 
 //OnConnectFunc 新链接建立成功回调
 type OnConnectFunc func(int)
@@ -35,6 +33,6 @@ type OnCloseFunc func(int)
 type ConnWrapper interface {
     Start()
     Close()
-    Write(*Message) error
+    Write(*common.Message) error
     GetName() string
 }

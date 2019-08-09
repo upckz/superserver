@@ -42,8 +42,7 @@ type Server struct {
     sigCh               chan os.Signal
     internalSvrInstance *socket.Server
 
-    sendCh chan *socket.ResponseWrapper
-    readCh chan *socket.MessageWrapper
+    readCh chan *common.MessageWrapper
 
     ctx    context.Context
     cancel context.CancelFunc
@@ -55,8 +54,7 @@ func NewServer(cfg *Config) *Server {
         svid:     cfg.SvrID,
         sverType: cfg.SverType,
         cfg:      cfg,
-        sendCh:   make(chan *socket.ResponseWrapper, 1000),
-        readCh:   make(chan *socket.MessageWrapper, 1000),
+        readCh:   make(chan *common.MessageWrapper, 10000),
         sigCh:    make(chan os.Signal, 1),
     }
 
@@ -66,10 +64,10 @@ func NewServer(cfg *Config) *Server {
         IP:        cfg.IP,
         Port:      cfg.Port,
         MsgCh:     s.readCh,
-        HbTimeout: 15,
+        HbTimeout: 60,
         Secert:    false,
         Ctx:       s.ctx,
-        EpollNum:  10,
+        EpollNum:  1,
         OnConnect: func(netid int) {
             log.Debugf("Internal Server Connection[id:%d] connected", netid)
         },

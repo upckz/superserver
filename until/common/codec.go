@@ -1,4 +1,4 @@
-package socket 
+package common
 
 import (
     "bytes"
@@ -17,28 +17,28 @@ func BytesCombine(pBytes ...[]byte) []byte {
     return bytes.Join(s, sep)
 }
 
-func MkMessage(msg *Message)([]byte, error) {
+func MkMessage(msg *Message) ([]byte, error) {
 
     buffer := new(bytes.Buffer)
     err := binary.Write(buffer, binary.BigEndian, msg.cmd)
     if err != nil {
-        return nil, err 
+        return nil, err
     }
     err = binary.Write(buffer, binary.BigEndian, msg.uid)
     if err != nil {
-        return nil, err 
+        return nil, err
     }
 
     err = binary.Write(buffer, binary.BigEndian, msg.data)
     if err != nil {
-        return nil, err 
+        return nil, err
     }
-    return buffer.Bytes(), nil 
+    return buffer.Bytes(), nil
 }
 
 // Encode from Message to []byte
 func Encode(msg *Message) ([]byte, error) {
-  
+
     pkg, err := MkMessage(msg)
     if err != nil {
         return nil, err
@@ -48,7 +48,7 @@ func Encode(msg *Message) ([]byte, error) {
     buffer := new(bytes.Buffer)
     err = binary.Write(buffer, binary.BigEndian, int32(ln)+4) //pkg and head
     if err != nil {
-        return nil, err 
+        return nil, err
     }
     data := make([]byte, 0)
     data = append(data, buffer.Bytes()...)
@@ -60,28 +60,28 @@ func Encode(msg *Message) ([]byte, error) {
 
 // Decode from []byte to Message
 func Decode(buff []byte) (*Message, error) {
-    var err error 
+    var err error
     size := len(buff)
     if size < 8 {
-        size =  8
+        size = 8
     }
     message := &Message{
-        data:make([]byte, size-8),
+        data: make([]byte, size-8),
     }
 
     bufReader := bytes.NewReader(buff)
     err = binary.Read(bufReader, binary.BigEndian, &message.cmd)
     if err != nil {
-        return nil, err 
+        return nil, err
     }
     err = binary.Read(bufReader, binary.BigEndian, &message.uid)
     if err != nil {
-        return nil, err 
+        return nil, err
     }
 
     err = binary.Read(bufReader, binary.BigEndian, &message.data)
     if err != nil {
-        return nil, err 
+        return nil, err
     }
     return message, nil
 }
@@ -92,18 +92,18 @@ func EnBinaryPackage(msg *Message, opensslEncrypted []byte) ([]byte, error) {
     if err != nil {
         return nil, err
     }
-  
+
     dataBuffer := xxtea.Encrypt(pkg, opensslEncrypted)
     buffer := new(bytes.Buffer)
-    err = binary.Write(buffer, binary.BigEndian, int32(len(dataBuffer)+4))//pkg and head
+    err = binary.Write(buffer, binary.BigEndian, int32(len(dataBuffer)+4)) //pkg and head
     if err != nil {
         return nil, err
     }
     err = binary.Write(buffer, binary.BigEndian, dataBuffer)
     if err != nil {
-        return nil, err 
+        return nil, err
     }
-    return buffer.Bytes(), nil 
+    return buffer.Bytes(), nil
 }
 
 func DeBinaryPackage(msg, opensslEncrypted []byte) (*Message, error) {
@@ -120,7 +120,7 @@ func DeBinaryPackage(msg, opensslEncrypted []byte) (*Message, error) {
 
 }
 
-func ParsePacket(data []byte) int32{
+func ParsePacket(data []byte) int32 {
 
     n := int32(len(data))
     //need continue to recv buf
@@ -131,22 +131,22 @@ func ParsePacket(data []byte) int32{
     var pkglen int32
     err := binary.Read(bufReader, binary.BigEndian, &pkglen)
     //error to pkg
-    if err != nil  || pkglen > 65535 {
-       return -1 
-            
+    if err != nil || pkglen > 65535 {
+        return -1
+
     }
-    // is one pkg 
+    // is one pkg
     if pkglen < 0 {
         return -1
     }
 
     //need continue to recv buf
     if n < pkglen {
-        return 0  
+        return 0
     }
     //one complete pkg
     return pkglen
-  
+
 }
 
 func OnPacketComplete(data []byte, isSecert bool, secertKey []byte) (*Message, error) {

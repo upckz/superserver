@@ -48,7 +48,7 @@ type Client struct {
 
     connectTimer int
 
-    sendCh chan *Message
+    sendCh chan *common.Message
 
     ctx    context.Context
     cancel context.CancelFunc
@@ -61,7 +61,8 @@ func NewClient(ctx context.Context, idx int) *Client {
         reconnectCount: common.NewAtomicUint64(0),
         isConnect:      common.NewAtomicBoolean(false),
         id:             idx,
-        sendCh:         make(chan *Message, 1000),
+        sendCh:         make(chan *common.Message, 1000),
+        conn:           nil,
     }
     c.ctx, c.cancel = context.WithCancel(ctx)
     return c
@@ -188,9 +189,10 @@ func (c *Client) Connect() {
         }
         c.isConnect.Set(true)
         c.SetName(fmt.Sprintf("client [id:%d->%v]", c.id, c.addr))
+        log.Infof("client[%d] connect ip[%s] success", c.id, c.conn.RemoteAddr().String())
+
         c.instance.AddMapCli(c)
         c.SendHeartbeatMsg()
-
         go c.RecvLoop()
 
     })
@@ -215,27 +217,27 @@ func (c *Client) BulidConntinon() error {
         }
         buff = buff[0:n]
 
-        head := &PackageHead{
-            data: make([]byte, len(buff)-5),
+        head := &common.PackageHead{
+            Data: make([]byte, len(buff)-5),
         }
 
         bufReader := bytes.NewReader(buff)
-        err = binary.Read(bufReader, binary.BigEndian, &head.length)
+        err = binary.Read(bufReader, binary.BigEndian, &head.Length)
         if err != nil {
-            log.Errorf("connId[%d] %s read headlen err[%v]", c.id, c.conn.RemoteAddr().String(), err.Error())
+            log.Errorf("client[%d] %s read headlen err[%v]", c.id, c.conn.RemoteAddr().String(), err.Error())
             return err
         }
-        err = binary.Read(bufReader, binary.BigEndian, &head.ack)
+        err = binary.Read(bufReader, binary.BigEndian, &head.Ack)
         if err != nil {
-            log.Errorf("connId[%d] %s read head ack err[%v]", c.id, c.conn.RemoteAddr().String(), err.Error())
+            log.Errorf("client[%d] %s read head ack err[%v]", c.id, c.conn.RemoteAddr().String(), err.Error())
             return err
         }
-        err = binary.Read(bufReader, binary.BigEndian, &head.data)
+        err = binary.Read(bufReader, binary.BigEndian, &head.Data)
         if err != nil {
-            log.Errorf("connId[%d] %s read head ack err[%v]", c.id, c.conn.RemoteAddr().String(), err.Error())
+            log.Errorf("client[%d] %s read head ack err[%v]", c.id, c.conn.RemoteAddr().String(), err.Error())
             return err
         }
-        if head.ack == 2 {
+        if head.Ack == 2 {
 
             privateKey, publicKey := dh64.KeyPair()
 
@@ -248,7 +250,7 @@ func (c *Client) BulidConntinon() error {
                 return err
             }
 
-            serverPublicKey := uint64(binary.BigEndian.Uint64(head.data))
+            serverPublicKey := uint64(binary.BigEndian.Uint64(head.Data))
 
             secert, err := dh64.Secret(privateKey, uint64(serverPublicKey))
             if err != nil {
@@ -318,7 +320,7 @@ func (cw *Client) RecvLoop() {
             } else {
                 cw.cache = append(cw.cache, buf[0:n]...)
                 for len(cw.cache) > 0 {
-                    pkglen := ParsePacket(cw.cache)
+                    pkglen := common.ParsePacket(cw.cache)
                     if pkglen == -1 {
                         log.Errorf("client[%d] <%v> recv error pkg", cw.id, cw.conn.RemoteAddr())
                         cw.Close()
@@ -326,7 +328,7 @@ func (cw *Client) RecvLoop() {
                     } else if pkglen == 0 {
                         break
                     } else {
-                        msg, err := OnPacketComplete(cw.cache[0:pkglen], cw.secert, cw.secertKey)
+                        msg, err := common.OnPacketComplete(cw.cache[0:pkglen], cw.secert, cw.secertKey)
                         if err != nil || msg == nil {
                             log.Errorf("client[%d] ip[%s] input fatal error", cw.id, cw.conn.RemoteAddr().String())
                             cw.Close()
@@ -369,7 +371,7 @@ func (cw *Client) RecvLoop() {
     }
 }
 
-func (cw *Client) ProcessDoneMsg(msg *Message) int {
+func (cw *Client) ProcessDoneMsg(msg *common.Message) int {
 
     wrapper := &CliMsgWrapper{
         ID:  cw.GetID(),
@@ -383,10 +385,9 @@ func (cw *Client) ProcessDoneMsg(msg *Message) int {
 func (c *Client) Close() {
     c.cancel()
     c.instance.OnCloseCli(c)
-    if c.conn != nil {
+    if c.HasConnect() {
         log.Errorf("client[%d] [%s] close! ", c.id, c.conn.RemoteAddr().String())
         c.conn.Close()
-        c.conn = nil
     }
     c.isConnect.Set(false)
     c.stopHeartbeatTimer()
@@ -434,14 +435,14 @@ func (c *Client) SendHeartbeatMsg() {
     if !c.HasConnect() {
         return
     }
-    msg := NewMessage(cmd.MsgHeartbeat, int32(c.id), make([]byte, 0))
+    msg := common.NewMessage(cmd.MsgHeartbeat, int32(c.id), make([]byte, 0))
     log.Debugf("client[%d] ip[%s] send heart [%v]", c.id, c.conn.RemoteAddr().String(), msg)
     c.WritePacket(msg)
 
 }
 
 //写数据包
-func (c *Client) WritePacket(pkt *Message) {
+func (c *Client) WritePacket(pkt *common.Message) {
     if pkt != nil && c.sendCh != nil {
         sendIsFull := len(c.sendCh) == cap(c.sendCh)
         hasConnect := c.HasConnect()
@@ -454,18 +455,18 @@ func (c *Client) WritePacket(pkt *Message) {
     }
 }
 
-func (c *Client) SendMessage(msg *Message) error {
+func (c *Client) SendMessage(msg *common.Message) error {
 
     var pkg []byte
     var err error
     if c.secert == true {
 
-        pkg, err = EnBinaryPackage(msg, c.secertKey)
+        pkg, err = common.EnBinaryPackage(msg, c.secertKey)
         if err != nil {
             return err
         }
     } else {
-        pkg, err = Encode(msg)
+        pkg, err = common.Encode(msg)
         if err != nil {
             return err
         }
