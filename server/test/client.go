@@ -4,7 +4,6 @@ import (
     "context"
     "flag"
     "fmt"
-    "github.com/koangel/grapeTimer"
     "net/http"
     _ "net/http/pprof"
     "os"
@@ -65,7 +64,7 @@ func NewServer(cfg *Config) *Server {
 func (s *Server) Run() {
 
     cfg := &socket.ClientConfig{
-        HbTimeout:     7,
+        HbTimeout:     10 * time.Second,
         Ip:            s.cfg.IP,
         Port:          s.cfg.Port,
         Secert:        true,
@@ -143,10 +142,6 @@ func main() {
         return
     }
     log.Debugf("sss=%d", *svid)
-    //开启定时器500 ms 单位轮询
-    grapeTimer.InitGrapeScheduler(100*time.Microsecond, true)
-    grapeTimer.CDebugMode = false  //设置启用日志调试模式，建议正式版本关闭他
-    grapeTimer.UseAsyncExec = true //开启异步调度模式，在此模式下 timer执行时会建立一个go，不会阻塞其他timer执行调度，建议开启
 
     cfg := &Config{
         SvrID:    int32(*svid),

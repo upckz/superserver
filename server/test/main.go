@@ -32,7 +32,7 @@ type Config struct {
     IP        string
     Port      int32
     Gameid    int32
-    HbTimeout int32
+    HbTimeout time.Duration
 }
 
 type Server struct {
@@ -63,7 +63,7 @@ func NewServer(cfg *Config) *Server {
         IP:        cfg.IP,
         Port:      cfg.Port,
         MsgCh:     s.readCh,
-        HbTimeout: 60,
+        HbTimeout: 30 * time.Second,
         Secert:    true,
         Ctx:       s.ctx,
         EpollNum:  1,

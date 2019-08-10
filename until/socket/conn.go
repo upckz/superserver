@@ -4,14 +4,15 @@ import (
     "bytes"
     "encoding/binary"
     "errors"
-    "github.com/koangel/grapeTimer"
     "net"
     "strconv"
     "superserver/cmd"
     "superserver/until/common"
     "superserver/until/crypto/dh64"
     log "superserver/until/czlog"
+    "superserver/until/timingwheel"
     "sync"
+    "time"
 )
 
 // TCPConn represents a server connection to a TCP server, it implments Conn.
@@ -28,9 +29,6 @@ type TCPConn struct {
     readCh chan *MessageWrapper
     once   *sync.Once //只执行一次的锁
 
-    hbTimeout int32
-    hbTimer   int
-
     secertKey []byte //通讯密钥
     secert    bool   //通讯是否加密
 
@@ -38,6 +36,9 @@ type TCPConn struct {
     publicKey   uint64
     hasRecvFlag bool //recv flag('SW') to change to publicKey
 
+    hbTimeout  time.Duration
+    hbTimer    *timingwheel.Timer
+    timerWheel *timingwheel.TimingWheel
 }
 
 // NewTCPConn returns a new server connection which has not started to
@@ -56,6 +57,7 @@ func NewTCPConn(fd int, c net.Conn, s *Server, epoller *epoll) *TCPConn {
         secertKey:   make([]byte, 0),
         hasRecvFlag: false,
         epoller:     epoller,
+        timerWheel:  s.timerWheel,
     }
     if !cw.secert {
         cw.hasRecvFlag = true
@@ -285,18 +287,18 @@ func (cw *TCPConn) StopAllTimer() {
 
 func (cw *TCPConn) StartHeartbeatTimer() {
     cw.StopHeartbeatTimer()
-    cw.hbTimer = grapeTimer.NewTickerOnce(int(cw.hbTimeout*1000), cw.ProcessTimeOut, HEAET_TIMER_OUT)
+    cw.hbTimer = cw.timerWheel.AfterFunc(cw.hbTimeout, cw.ProcessTimeOut, HEAET_TIMER_OUT)
 }
 
 func (cw *TCPConn) StopHeartbeatTimer() {
-    grapeTimer.StopTimer(cw.hbTimer)
+    cw.hbTimer.Stop()
 }
 
 func (cw *TCPConn) ProcessTimeOut(timeType int) {
 
     switch timeType {
     case HEAET_TIMER_OUT:
-        log.Errorf("fd[%d] ip[%s] heart time[>%d] out", cw.fd, cw.rawConn.RemoteAddr().String(), cw.hbTimeout)
+        log.Errorf("fd[%d] ip[%s] heart time[>%v] out", cw.fd, cw.rawConn.RemoteAddr().String(), cw.hbTimeout)
         cw.Close()
     default:
     }

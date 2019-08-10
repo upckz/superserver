@@ -11,10 +11,9 @@ import (
     "superserver/until/common"
     "superserver/until/crypto/dh64"
     log "superserver/until/czlog"
+    "superserver/until/timingwheel"
     "sync"
     "time"
-
-    "github.com/koangel/grapeTimer"
 )
 
 type GetAddrFunc func() string
@@ -42,12 +41,13 @@ type Client struct {
 
     cache []byte //recv cache 接受缓存
 
-    hbTimeout int32
-    hbTimer   int
+    hbTimeout  time.Duration
+    heartTimer *timingwheel.Timer
+    timerWheel *timingwheel.TimingWheel
 
-    connectTimer int
-    heartTimer   int
-    sendCh       chan *Message
+    connectTimer *timingwheel.Timer
+
+    sendCh chan *Message
 
     hasRecvFlag bool //recv flag('SW') to change to publicKey
 }
@@ -69,6 +69,7 @@ func NewClient(i *Instance, cfg *ClientConfig) *Client {
         cache:             make([]byte, 0),
         hasRecvFlag:       false,
         needReconnectFlag: cfg.ReconnectFlag,
+        timerWheel:        i.timerWheel,
     }
     c.SetAddr(fmt.Sprintf("%s:%d", cfg.Ip, cfg.Port))
 
@@ -102,13 +103,6 @@ func (c *Client) GetLevel() int32 {
 
 func (c *Client) SetNeedReconnectFlag(sflag bool) {
     c.needReconnectFlag = sflag
-}
-
-//设置心跳
-func (c *Client) SetHbTimer(ti int32) {
-
-    c.hbTimeout = ti
-
 }
 
 //设置秘钥
@@ -160,20 +154,23 @@ func (c *Client) Connect() bool {
         log.Errorf(c.name+" Connect failed:%v, %v", c.addr, err)
         return false
     }
+
     if c.secert == true {
-        err := c.BulidConntinon()
-        if err != nil {
-            log.Errorf(c.name+" Connect secert failed:%v, %v", c.addr, err)
-            conn.Close()
-            return false
-        }
+        c.SendAckMsg()
+        // err := c.BulidConntinon()
+        // if err != nil {
+        //     log.Errorf(c.name+" Connect secert failed:%v, %v", c.addr, err)
+        //     conn.Close()
+        //     return false
+        // }
+    } else {
+        c.hasRecvFlag = true
     }
     c.fd = SocketFD(conn)
 
     c.isConnect.Set(true)
     c.SetName(fmt.Sprintf("client [fd:%d->%v]", c.fd, c.addr))
-    log.Infof("client fd[%d] connect ip[%s] success", c.fd, c.conn.RemoteAddr().String())
-    c.SendHeartbeatMsg()
+
     return true
 }
 
@@ -304,34 +301,34 @@ func (cw *Client) DoRecv() error {
         } else if pkglen == 0 {
             break
         } else {
-            msg, err := OnPacketComplete(cw.cache[0:pkglen], cw.secert, cw.secertKey)
+            // msg, err := OnPacketComplete(cw.cache[0:pkglen], cw.secert, cw.secertKey)
 
-            if err != nil || msg == nil {
-                log.Errorf("fd[%d] ip[%s] input fatal error, ", cw.fd, cw.conn.RemoteAddr().String())
-                cw.Close()
-                return err
-            } else {
-                log.Debugf("fd[%d] msg[%v]", cw.fd, msg)
-                cw.ProcessDoneMsg(msg)
-            }
-
-            // if cw.hasRecvFlag {
-            //     msg, err := common.OnPacketComplete(cw.cache[0:pkglen], cw.secert, cw.secertKey)
-
-            //     if err != nil || msg == nil {
-            //         log.Errorf("fd[%d] ip[%s] input fatal error, ", cw.fd, cw.conn.RemoteAddr().String())
-            //         cw.Close()
-            //         return err
-            //     } else {
-            //         cw.ProcessDoneMsg(msg)
-            //     }
+            // if err != nil || msg == nil {
+            //     log.Errorf("fd[%d] ip[%s] input fatal error, ", cw.fd, cw.conn.RemoteAddr().String())
+            //     cw.Close()
+            //     return err
             // } else {
-            //     err := cw.BulidEncryptionConnction(cw.cache[0:pkglen])
-            //     if err != nil {
-            //         cw.Close()
-            //         return err
-            //     }
+            //     log.Debugf("fd[%d] msg[%v]", cw.fd, msg)
+            //     cw.ProcessDoneMsg(msg)
             // }
+
+            if cw.hasRecvFlag {
+                msg, err := OnPacketComplete(cw.cache[0:pkglen], cw.secert, cw.secertKey)
+
+                if err != nil || msg == nil {
+                    log.Errorf("fd[%d] ip[%s] input fatal error, ", cw.fd, cw.conn.RemoteAddr().String())
+                    cw.Close()
+                    return err
+                } else {
+                    cw.ProcessDoneMsg(msg)
+                }
+            } else {
+                err := cw.BulidEncryptionConnction(cw.cache[0:pkglen])
+                if err != nil {
+                    cw.Close()
+                    return err
+                }
+            }
         }
         cw.cache = cw.cache[pkglen:]
     }
@@ -339,105 +336,107 @@ func (cw *Client) DoRecv() error {
 
 }
 
-// func (c *Client)SendAckMsg() {
-//     if c.secert == true {
-//         wb := make([]byte, 7)
-//         binary.BigEndian.PutUint32(wb[:4], uint32(7))
-//         wb[4] = byte(1)
-//         wb[5] = byte('S')
-//         wb[6] = byte('W')
-//         _, err := c.conn.Write(wb)
+func (c *Client) SendAckMsg() error {
+    if c.secert == true {
+        wb := make([]byte, 7)
+        binary.BigEndian.PutUint32(wb[:4], uint32(7))
+        wb[4] = byte(1)
+        wb[5] = byte('S')
+        wb[6] = byte('W')
+        _, err := c.conn.Write(wb)
 
-//         if err != nil {
-//             return err
-//         }
-//     }
-// }
+        if err != nil {
+            return err
+        }
+    }
+    return nil
+}
 
-// func (cw *Client) BulidEncryptionConnction(buff []byte) error {
-//     if !cw.hasRecvFlag && cw.secert {
+func (cw *Client) BulidEncryptionConnction(buff []byte) error {
+    if !cw.hasRecvFlag && cw.secert {
 
-//         head := &PackageHead{
-//             data: make([]byte, len(buff)-5),
-//         }
+        head := &PackageHead{
+            Data: make([]byte, len(buff)-5),
+        }
 
-//         bufReader := bytes.NewReader(buff)
-//         err := binary.Read(bufReader, binary.BigEndian, &head.length)
-//         if err != nil {
-//             log.Errorf("fd[%d] %s read headlen err[%v]", cw.fd, cw.conn.RemoteAddr().String(), err.Error())
-//             return err
-//         }
-//         err = binary.Read(bufReader, binary.BigEndian, &head.ack)
-//         if err != nil {
-//             log.Errorf("fd[%d] %s read head ack err[%v]", cw.fd, cw.conn.RemoteAddr().String(), err.Error())
-//             return err
-//         }
-//         err = binary.Read(bufReader, binary.BigEndian, &head.data)
-//         if err != nil {
-//             log.Errorf("fd[%d] %s read head ack err[%v]", cw.fd, cw.conn.RemoteAddr().String(), err.Error())
-//             return err
-//         }
-//         if head.ack == 2 {
+        bufReader := bytes.NewReader(buff)
+        err := binary.Read(bufReader, binary.BigEndian, &head.Length)
+        if err != nil {
+            log.Errorf("fd[%d] %s read headlen err[%v]", cw.fd, cw.conn.RemoteAddr().String(), err.Error())
+            return err
+        }
+        err = binary.Read(bufReader, binary.BigEndian, &head.Ack)
+        if err != nil {
+            log.Errorf("fd[%d] %s read head ack err[%v]", cw.fd, cw.conn.RemoteAddr().String(), err.Error())
+            return err
+        }
+        err = binary.Read(bufReader, binary.BigEndian, &head.Data)
+        if err != nil {
+            log.Errorf("fd[%d] %s read head ack err[%v]", cw.fd, cw.conn.RemoteAddr().String(), err.Error())
+            return err
+        }
+        if head.Ack == 2 {
 
-//             privateKey, publicKey := dh64.KeyPair()
-//             wb := make([]byte, 13)
-//             binary.BigEndian.PutUint32(wb[:4], uint32(13))
-//             wb[4] = byte(3)
-//             binary.BigEndian.PutUint64(wb[5:], uint64(publicKey))
+            privateKey, publicKey := dh64.KeyPair()
+            wb := make([]byte, 13)
+            binary.BigEndian.PutUint32(wb[:4], uint32(13))
+            wb[4] = byte(3)
+            binary.BigEndian.PutUint64(wb[5:], uint64(publicKey))
 
-//             if _, err := c.conn.Write(wb); err != nil {
-//                 return err
-//             }
+            if _, err := cw.conn.Write(wb); err != nil {
+                return err
+            }
 
-//             serverPublicKey := uint64(binary.BigEndian.Uint64(head.data))
+            serverPublicKey := uint64(binary.BigEndian.Uint64(head.Data))
 
-//             secert, err := dh64.Secret(privateKey, uint64(serverPublicKey))
-//             if err != nil {
-//                 log.Errorf("fd[%d] %s, DH64 secert Error:%v", c.id, c.conn.RemoteAddr().String(), err.Error())
-//                 return err
-//             }
-//             secertStr := strconv.FormatUint(secert, 10)
-//             secertMaxIndex := uint8(len(secertStr) - 1)
-//             var k uint8 = 0
-//             buffer := bytes.NewBufferString(secertStr)
-//             for i := secertMaxIndex + 1; i < 32; i++ {
-//                 if k > secertMaxIndex {
-//                     k = 0
-//                 }
-//                 buffer.WriteByte(secertStr[k])
-//                 k++
-//             }
-//             secertStr = buffer.String()
+            secert, err := dh64.Secret(privateKey, uint64(serverPublicKey))
+            if err != nil {
+                log.Errorf("fd[%d] %s, DH64 secert Error:%v", cw.fd, cw.conn.RemoteAddr().String(), err.Error())
+                return err
+            }
+            secertStr := strconv.FormatUint(secert, 10)
+            secertMaxIndex := uint8(len(secertStr) - 1)
+            var k uint8 = 0
+            buffer := bytes.NewBufferString(secertStr)
+            for i := secertMaxIndex + 1; i < 32; i++ {
+                if k > secertMaxIndex {
+                    k = 0
+                }
+                buffer.WriteByte(secertStr[k])
+                k++
+            }
+            secertStr = buffer.String()
 
-//             var keyBuffer bytes.Buffer
-//             for i := 0; i < 32; i = i + 2 {
-//                 tempInt, _ := strconv.Atoi(secertStr[i : i+2])
-//                 keyBuffer.WriteRune(rune(tempInt))
-//             }
+            var keyBuffer bytes.Buffer
+            for i := 0; i < 32; i = i + 2 {
+                tempInt, _ := strconv.Atoi(secertStr[i : i+2])
+                keyBuffer.WriteRune(rune(tempInt))
+            }
 
-//             log.Infof("fd[%d] connectHandler DH64 clientPublicKey[%v] serverPublicKey[%v] secert[%v] secertStr[%v] local[%s] ip[%v] connect",
-//                 c.id, publicKey, serverPublicKey, secert, secertStr, c.conn.LocalAddr(), c.conn.RemoteAddr().String())
+            log.Infof("fd[%d] connectHandler DH64 clientPublicKey[%v] serverPublicKey[%v] secert[%v] secertStr[%v] local[%s] ip[%v] connect",
+                cw.fd, publicKey, serverPublicKey, secert, secertStr, cw.conn.LocalAddr(), cw.conn.RemoteAddr().String())
 
-//             sw := keyBuffer.Bytes()
-//             c.secertKey = make([]byte, len(sw))
-//             copy(c.secertKey, sw)
-//             c.instance.NoticeToConnect(c)
-//             cw.hasRecvFlag = true
+            log.Infof("client fd[%d] connect ip[%s] success", cw.fd, cw.conn.RemoteAddr().String())
+            sw := keyBuffer.Bytes()
+            cw.secertKey = make([]byte, len(sw))
+            copy(cw.secertKey, sw)
+            cw.instance.NoticeToConnect(cw)
+            cw.hasRecvFlag = true
+            cw.SendHeartbeatMsg()
+        } else {
+            log.Errorf("fd[%d] %s, ack", cw.fd, cw.conn.RemoteAddr().String())
+            cw.Close()
+            return err
+        }
+    }
 
-//         } else {
-//             log.Errorf("fd[%d] %s, ack", cw.fd, cw.conn.RemoteAddr().String())
-//             cw.Close()
-//             return err
-//         }
-//     }
-
-//     return nil
-// }
+    return nil
+}
 
 func (cw *Client) ProcessDoneMsg(msg *Message) int {
 
     if msg.GetCmd() == cmd.MsgHeartbeat {
-        cw.startHeartbeatTimer()
+        // cw.startHeartbeatTimer()
     }
     wrapper := &CliMsgWrapper{
         ID:  cw.GetFD(),
@@ -460,6 +459,7 @@ func (c *Client) Close() {
     if c.needReconnectFlag {
         c.startReConnectTimer()
     }
+    c.hasRecvFlag = false
 }
 
 func (cw *Client) StopAllTimer() {
@@ -469,20 +469,28 @@ func (cw *Client) StopAllTimer() {
 
 func (cw *Client) startHeartbeatTimer() {
     cw.stopHeartbeatTimer()
-    cw.heartTimer = grapeTimer.NewTickerOnce(int(cw.hbTimeout*1000), cw.ProcessTimeOut, HEAET_TIMER_OUT)
+    cw.heartTimer = cw.timerWheel.AfterFunc(cw.hbTimeout, cw.ProcessTimeOut, HEAET_TIMER_OUT)
 }
 
 func (cw *Client) stopHeartbeatTimer() {
-    grapeTimer.StopTimer(cw.heartTimer)
+    if cw.heartTimer != nil {
+        cw.heartTimer.Stop()
+    }
+    cw.heartTimer = nil
+
 }
 
 func (cw *Client) startReConnectTimer() {
     cw.stopReConnectTimer()
     cw.reconnectCount.AddAndGet(1)
-    cw.connectTimer = grapeTimer.NewTickerOnce(int(cw.reconnectCount.Get())*500, cw.ProcessTimeOut, RECONNECT_TIMER_OUT)
+    cw.connectTimer = cw.timerWheel.AfterFunc(time.Duration(cw.reconnectCount.Get())*time.Second, cw.ProcessTimeOut, RECONNECT_TIMER_OUT)
 }
 func (cw *Client) stopReConnectTimer() {
-    grapeTimer.StopTimer(cw.connectTimer)
+    if cw.connectTimer != nil {
+        cw.connectTimer.Stop()
+    }
+    cw.connectTimer = nil
+
 }
 
 func (cw *Client) ProcessTimeOut(timeType int) {

@@ -6,6 +6,8 @@ import (
     "fmt"
     "github.com/orcaman/concurrent-map"
     log "superserver/until/czlog"
+    "superserver/until/timingwheel"
+    "time"
 )
 
 type CliMsgWrapper struct {
@@ -15,15 +17,15 @@ type CliMsgWrapper struct {
 }
 
 type ClientConfig struct {
-    Ip            string //连接的ip
-    Port          int32  //连接的port
-    ServerType    int32  //连接server类型
-    Svid          int32  //游戏的svid
-    Gameid        int32  //游戏id
-    Level         int32  //场次等级
-    Secert        bool   //通讯是否加密
-    ReconnectFlag bool   //是否重连
-    HbTimeout     int32  //heaer time 心跳时间间隔
+    Ip            string        //连接的ip
+    Port          int32         //连接的port
+    ServerType    int32         //连接server类型
+    Svid          int32         //游戏的svid
+    Gameid        int32         //游戏id
+    Level         int32         //场次等级
+    Secert        bool          //通讯是否加密
+    ReconnectFlag bool          //是否重连
+    HbTimeout     time.Duration //heaer time 心跳时间间隔
 }
 
 type Instance struct {
@@ -31,9 +33,10 @@ type Instance struct {
     clientOnConnectCh chan int            //同时建立连接数
     clientReadCh      chan *CliMsgWrapper //读chan 大小
 
-    ctx     context.Context
-    cancel  context.CancelFunc
-    epoller *epoll
+    ctx        context.Context
+    cancel     context.CancelFunc
+    epoller    *epoll
+    timerWheel *timingwheel.TimingWheel
 }
 
 //newInstance
@@ -46,6 +49,7 @@ func NewClientInstance(ctx context.Context, dataSize int32) *Instance {
         clientOnConnectCh: make(chan int, 100),
         clientReadCh:      make(chan *CliMsgWrapper, dataSize),
         epoller:           nil,
+        timerWheel:        timingwheel.NewTimingWheel(time.Millisecond, 20),
     }
     i.ctx, i.cancel = context.WithCancel(ctx)
 
@@ -55,8 +59,9 @@ func NewClientInstance(ctx context.Context, dataSize int32) *Instance {
         return nil
     }
     i.epoller = epoller
-    go i.Start()
 
+    go i.Start()
+    go i.timerWheel.Start()
     return i
 }
 
@@ -257,6 +262,7 @@ func (i *Instance) Close() {
     i.epoller.Close()
     close(i.clientOnConnectCh)
     close(i.clientReadCh)
+    i.timerWheel.Stop()
 }
 
 func (instance *Instance) Start() {

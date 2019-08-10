@@ -11,7 +11,9 @@ import (
     log "superserver/until/czlog"
 
     "github.com/libp2p/go-reuseport"
+    "superserver/until/timingwheel"
     "syscall"
+    "time"
 )
 
 const (
@@ -27,7 +29,7 @@ type Config struct {
     OnConnect OnConnectFunc
     OnClose   OnCloseFunc
     EpollNum  int32
-    HbTimeout int32
+    HbTimeout time.Duration
     Secert    bool
     Ctx       context.Context
 }
@@ -43,20 +45,23 @@ type Server struct {
     epoller []*epoll
     lock    *sync.RWMutex
 
-    listener net.Listener
+    listener   net.Listener
+    timerWheel *timingwheel.TimingWheel
 }
 
 //NewServer create a Server instance with conf
 func NewServer(conf *Config) *Server {
     s := &Server{
-        config:  conf,
-        conns:   NewConnMap(),
-        secert:  conf.Secert,
-        lock:    &sync.RWMutex{},
-        epoller: make([]*epoll, 0),
+        config:     conf,
+        conns:      NewConnMap(),
+        secert:     conf.Secert,
+        lock:       &sync.RWMutex{},
+        epoller:    make([]*epoll, 0),
+        timerWheel: timingwheel.NewTimingWheel(time.Millisecond, 20),
     }
     s.ctx, s.cancel = context.WithCancel(conf.Ctx)
     s.SetName(fmt.Sprint(s))
+    go s.timerWheel.Start()
     return s
 }
 
@@ -224,6 +229,7 @@ func (s *Server) Close() {
         epoller.Close()
     }
     s.listener.Close()
+    s.timerWheel.Stop()
     log.Debugln("Server Has Close")
 }
 
