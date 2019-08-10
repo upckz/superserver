@@ -192,7 +192,9 @@ func (c *Client) ReConnect() {
         if c.HasConnect() {
             return
         }
-        c.Connect()
+        if !Connect() {
+            c.startReConnectTimer()
+        }
     })
 }
 
@@ -459,9 +461,11 @@ func (cw *Client) ProcessDoneMsg(msg *common.Message) int {
 func (c *Client) Close() {
     c.instance.OnCloseCli(c)
     if c.HasConnect() {
+        c.epoller.Remov(c.fd)
         log.Errorf("fd[%d] [%s] close! ", c.fd, c.conn.RemoteAddr().String())
         c.conn.Close()
     }
+
     c.isConnect.Set(false)
     c.stopHeartbeatTimer()
     if c.needReconnectFlag {
@@ -486,7 +490,7 @@ func (cw *Client) stopHeartbeatTimer() {
 func (cw *Client) startReConnectTimer() {
     cw.stopReConnectTimer()
     cw.reconnectCount.AddAndGet(1)
-    cw.connectTimer = grapeTimer.NewTickerOnce(int(cw.reconnectCount.Get())*100, cw.ProcessTimeOut, RECONNECT_TIMER_OUT)
+    cw.connectTimer = grapeTimer.NewTickerOnce(int(cw.reconnectCount.Get())*500 cw.ProcessTimeOut, RECONNECT_TIMER_OUT)
 }
 func (cw *Client) stopReConnectTimer() {
     grapeTimer.StopTimer(cw.connectTimer)
@@ -503,7 +507,7 @@ func (cw *Client) ProcessTimeOut(timeType int) {
             go func() {
                 time.Sleep(1 * time.Second)
                 cw.once = &sync.Once{}
-                go cw.Connect()
+                go cw.ReConnect()
             }()
         }
     }

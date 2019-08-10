@@ -9,7 +9,6 @@ import (
 
     "superserver/until/common"
     log "superserver/until/czlog"
-    "superserver/until/epoll"
 
     "github.com/libp2p/go-reuseport"
     "syscall"
@@ -24,7 +23,7 @@ const (
 type Config struct {
     IP        string
     Port      int32
-    MsgCh     chan *common.MessageWrapper
+    MsgCh     chan *MessageWrapper
     OnConnect OnConnectFunc
     OnClose   OnCloseFunc
     EpollNum  int32
@@ -41,7 +40,7 @@ type Server struct {
     ctx     context.Context
     cancel  context.CancelFunc
     secert  bool
-    epoller []*epoll.Epoll
+    epoller []*epoll
     lock    *sync.RWMutex
 
     listener net.Listener
@@ -54,7 +53,7 @@ func NewServer(conf *Config) *Server {
         conns:   NewConnMap(),
         secert:  conf.Secert,
         lock:    &sync.RWMutex{},
-        epoller: make([]*epoll.Epoll, 0),
+        epoller: make([]*epoll, 0),
     }
     s.ctx, s.cancel = context.WithCancel(conf.Ctx)
     s.SetName(fmt.Sprint(s))
@@ -88,7 +87,7 @@ func (s *Server) startEpoll() {
         return
     }
 
-    epoller, err := epoll.MkEpoll()
+    epoller, err := MkEpoll()
     if err != nil {
         log.Errorf("Error:%v", err)
         panic(err)
@@ -112,7 +111,7 @@ func (s *Server) startEpoll() {
             log.Errorf("accept err: %v", e)
             return
         }
-        fd := epoll.SocketFD(conn)
+        fd := SocketFD(conn)
 
         sc := NewTCPConn(fd, conn, s, epoller)
         s.AddConn(fd, sc)
@@ -127,7 +126,7 @@ func (s *Server) startEpoll() {
 
 }
 
-func (s *Server) Start(epoller *epoll.Epoll) {
+func (s *Server) Start(epoller *epoll) {
     defer func() {
         log.Debugf("exit start")
         s.Close()
@@ -173,7 +172,7 @@ func (s *Server) Run() {
 
 }
 
-func (s *Server) insertEpoll(epoller *epoll.Epoll) {
+func (s *Server) insertEpoll(epoller *epoll) {
     s.lock.Lock()
     defer s.lock.Unlock()
     s.epoller = append(s.epoller, epoller)
@@ -185,7 +184,7 @@ func (s *Server) SetName(name string) {
 }
 
 // Unicast unicasts message to a specified conn.
-func (s *Server) SendClientMsg(id int, msg *common.Message) error {
+func (s *Server) SendClientMsg(id int, msg *Message) error {
     c, ok := s.conns.Get(id)
     if ok {
         return c.Write(msg)
@@ -194,7 +193,7 @@ func (s *Server) SendClientMsg(id int, msg *common.Message) error {
 }
 
 // Broadcast broadcasts message to all server connections managed.
-func (s *Server) Broadcast(msg *common.Message) {
+func (s *Server) Broadcast(msg *Message) {
     conns := s.conns.GetAll()
     for _, c := range conns {
         if err := c.Write(msg); err != nil {

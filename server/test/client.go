@@ -40,8 +40,8 @@ type Server struct {
     sigCh  chan os.Signal
     cliMgr *socket.Instance
     cfg    *Config
-    sendCh chan *common.ResponseWrapper
-    readCh chan *common.MessageWrapper
+    sendCh chan *socket.ResponseWrapper
+    readCh chan *socket.MessageWrapper
     ctx    context.Context
     cancel context.CancelFunc
 }
@@ -50,8 +50,8 @@ func NewServer(cfg *Config) *Server {
 
     s := &Server{
         cfg:    cfg,
-        sendCh: make(chan *common.ResponseWrapper, 100),
-        readCh: make(chan *common.MessageWrapper, 100),
+        sendCh: make(chan *socket.ResponseWrapper, 100),
+        readCh: make(chan *socket.MessageWrapper, 100),
         sigCh:  make(chan os.Signal, 1),
     }
 
@@ -64,17 +64,17 @@ func NewServer(cfg *Config) *Server {
 
 func (s *Server) Run() {
 
-    cfg := &socket.ConfigOfClient{
-        HeartTimer:    7,
+    cfg := &socket.ClientConfig{
+        HbTimeout:     7,
         Ip:            s.cfg.IP,
         Port:          s.cfg.Port,
-        Secert:        false,
+        Secert:        true,
         ReconnectFlag: false,
     }
     go s.runRead()
 
     for i := 0; i < 20000; i++ {
-        s.cliMgr.AddClientWith(cfg, s.cfg.SvrID*200000) //server作为客户端 ，管理所有的客户端连接请求, 是否加密访问
+        s.cliMgr.AddClientWith(cfg) //server作为客户端 ，管理所有的客户端连接请求, 是否加密访问
 
     }
 }

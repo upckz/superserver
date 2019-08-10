@@ -11,14 +11,13 @@ import (
     "superserver/until/common"
     "superserver/until/crypto/dh64"
     log "superserver/until/czlog"
-    "superserver/until/epoll"
     "sync"
 )
 
 // TCPConn represents a server connection to a TCP server, it implments Conn.
 type TCPConn struct {
     server  *Server
-    epoller *epoll.Epoll
+    epoller *epoll
     fd      int
     rawConn net.Conn
     mu      sync.Mutex
@@ -26,7 +25,7 @@ type TCPConn struct {
     cache   []byte //recv cache
 
     sendCh chan []byte //use for send data
-    readCh chan *common.MessageWrapper
+    readCh chan *MessageWrapper
     once   *sync.Once //只执行一次的锁
 
     hbTimeout int32
@@ -43,7 +42,7 @@ type TCPConn struct {
 
 // NewTCPConn returns a new server connection which has not started to
 // serve requests yet.
-func NewTCPConn(fd int, c net.Conn, s *Server, epoller *epoll.Epoll) *TCPConn {
+func NewTCPConn(fd int, c net.Conn, s *Server, epoller *epoll) *TCPConn {
     cw := &TCPConn{
         fd:          fd,
         rawConn:     c,
@@ -87,7 +86,7 @@ func (cw *TCPConn) GetName() string {
 }
 
 // Write writes a message to the client.
-func (cw *TCPConn) Write(message *common.Message) error {
+func (cw *TCPConn) Write(message *Message) error {
     return asyncWrite(cw, message)
 }
 
@@ -116,7 +115,7 @@ func (cw *TCPConn) DoRecv() error {
     }
     cw.cache = append(cw.cache, buf[0:n]...)
     for len(cw.cache) > 0 {
-        pkglen := common.ParsePacket(cw.cache)
+        pkglen := ParsePacket(cw.cache)
         if pkglen < 0 {
             log.Errorf("fd[%d] [%s] recv error pkg", cw.fd, cw.rawConn.RemoteAddr())
             cw.Close()
@@ -126,7 +125,7 @@ func (cw *TCPConn) DoRecv() error {
         } else {
 
             if cw.hasRecvFlag {
-                msg, err := common.OnPacketComplete(cw.cache[0:pkglen], cw.secert, cw.secertKey)
+                msg, err := OnPacketComplete(cw.cache[0:pkglen], cw.secert, cw.secertKey)
 
                 if err != nil || msg == nil {
                     log.Errorf("fd[%d] ip[%s] input fatal error, ", cw.fd, cw.rawConn.RemoteAddr().String())
@@ -152,7 +151,7 @@ func (cw *TCPConn) DoRecv() error {
 func (cw *TCPConn) BulidEncryptionConnction(buff []byte) error {
     if !cw.hasRecvFlag && cw.secert {
 
-        head := &common.PackageHead{
+        head := &PackageHead{
             Data: make([]byte, len(buff)-5),
         }
 
@@ -236,7 +235,7 @@ func (cw *TCPConn) BulidEncryptionConnction(buff []byte) error {
     return nil
 }
 
-func (cw *TCPConn) ProcessDoneMsg(msg *common.Message) int {
+func (cw *TCPConn) ProcessDoneMsg(msg *Message) int {
 
     log.Warnf("fd[%d]  ip[%s] recv message %v\n", cw.fd, cw.rawConn.RemoteAddr().String(), msg)
     if msg.GetCmd() == cmd.MsgHeartbeat {
@@ -244,16 +243,16 @@ func (cw *TCPConn) ProcessDoneMsg(msg *common.Message) int {
     }
     cw.StartHeartbeatTimer()
 
-    // mw := &common.MessageWrapper{
-    //     Msg:      msg,
-    //     ConnID:   cw.fd,
-    //     SourceIP: cw.rawConn.RemoteAddr().String(),
-    // }
+    mw := &MessageWrapper{
+        Msg:      msg,
+        ConnID:   cw.fd,
+        SourceIP: cw.rawConn.RemoteAddr().String(),
+    }
 
-    // if len(cw.readCh) > 1000 {
-    //     log.Errorf("readch max 1000 error[%d]", len(cw.readCh))
-    // }
-    // // cw.readCh <- mw
+    if len(cw.readCh) > 1000 {
+        log.Errorf("readch max 1000 error[%d]", len(cw.readCh))
+    }
+    cw.readCh <- mw
 
     return 0
 
@@ -304,7 +303,7 @@ func (cw *TCPConn) ProcessTimeOut(timeType int) {
 }
 
 func (cw *TCPConn) SendHeartbeatMsg(uid int32) {
-    msg := common.NewMessage(cmd.MsgHeartbeat, uid, make([]byte, 0))
+    msg := NewMessage(cmd.MsgHeartbeat, uid, make([]byte, 0))
     err := cw.Write(msg)
     if err != nil {
         log.Errorf("fd[%d] uid[%d] ip[%s] send heart error", cw.fd, uid, cw.rawConn.RemoteAddr().String())
@@ -315,7 +314,7 @@ func (cw *TCPConn) SendHeartbeatMsg(uid int32) {
 
 }
 
-func asyncWrite(cw *TCPConn, m *common.Message) error {
+func asyncWrite(cw *TCPConn, m *Message) error {
     defer func() error {
         if p := recover(); p != nil {
             log.Errorln(common.GlobalPanicLog(p))
@@ -327,12 +326,12 @@ func asyncWrite(cw *TCPConn, m *common.Message) error {
     var pkt []byte
     var err error
     if cw.secert == true {
-        pkt, err = common.EnBinaryPackage(m, cw.secertKey)
+        pkt, err = EnBinaryPackage(m, cw.secertKey)
         if err != nil {
             return err
         }
     } else {
-        pkt, err = common.Encode(m)
+        pkt, err = Encode(m)
         if err != nil {
             return err
         }

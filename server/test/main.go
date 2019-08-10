@@ -41,8 +41,8 @@ type Server struct {
     cfg                 *Config
     sigCh               chan os.Signal
     internalSvrInstance *socket.Server
-
-    readCh chan *common.MessageWrapper
+    cliMgr              *socket.Instance
+    readCh              chan *socket.MessageWrapper
 
     ctx    context.Context
     cancel context.CancelFunc
@@ -54,10 +54,9 @@ func NewServer(cfg *Config) *Server {
         svid:     cfg.SvrID,
         sverType: cfg.SverType,
         cfg:      cfg,
-        readCh:   make(chan *common.MessageWrapper, 10000),
+        readCh:   make(chan *socket.MessageWrapper, 10000),
         sigCh:    make(chan os.Signal, 1),
     }
-
     s.ctx, s.cancel = context.WithCancel(context.Background())
 
     svrCfg := &socket.Config{
@@ -65,7 +64,7 @@ func NewServer(cfg *Config) *Server {
         Port:      cfg.Port,
         MsgCh:     s.readCh,
         HbTimeout: 60,
-        Secert:    false,
+        Secert:    true,
         Ctx:       s.ctx,
         EpollNum:  1,
         OnConnect: func(netid int) {
@@ -75,6 +74,7 @@ func NewServer(cfg *Config) *Server {
             log.Debugf("Internal Server Connection[id:%d] Closed", netid)
         },
     }
+    s.cliMgr = socket.NewClientInstance(s.ctx, 10000)
     s.internalSvrInstance = socket.NewServer(svrCfg)
     return s
 }
@@ -116,6 +116,14 @@ func (s *Server) dispatchClientMsg() {
         case rawMsg, ok := <-s.readCh:
             if ok {
                 log.Debugf("msg[%v]", rawMsg)
+            }
+        case pkt, ok := <-s.cliMgr.OnReadPacket():
+            if ok {
+                log.Debugf("OnReadPacket....pkt[%v]", pkt)
+            }
+        case id, ok := <-s.cliMgr.OnConnect():
+            if ok {
+                log.Debugf("OnConnect[%d]", id)
             }
         }
     }

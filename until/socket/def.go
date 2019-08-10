@@ -2,7 +2,6 @@ package socket
 
 import (
     "errors"
-    "superserver/until/common"
 )
 
 var (
@@ -33,6 +32,6 @@ type OnCloseFunc func(int)
 type ConnWrapper interface {
     Start()
     Close()
-    Write(*common.Message) error
+    Write(*Message) error
     GetName() string
 }

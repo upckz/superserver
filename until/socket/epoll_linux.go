@@ -1,4 +1,4 @@
-package epoll
+package socket
 
 import (
 	"golang.org/x/sys/unix"
@@ -8,27 +8,27 @@ import (
 	"syscall"
 )
 
-type Epoll struct {
+type epoll struct {
 	fd   int
 	lock *sync.RWMutex
 }
 
-func MkEpoll() (*Epoll, error) {
+func MkEpoll() (*epoll, error) {
 	fd, err := unix.EpollCreate1(0)
 	if err != nil {
 		return nil, err
 	}
-	return &Epoll{
+	return &epoll{
 		fd:   fd,
 		lock: &sync.RWMutex{},
 	}, nil
 }
 
-func (e *Epoll) Close() error {
+func (e *epoll) Close() error {
 	return unix.Close(e.fd)
 }
 
-func (e *Epoll) Add(fd int) error {
+func (e *epoll) Add(fd int) error {
 
 	if err := unix.SetNonblock(fd, true); err != nil {
 		return err
@@ -41,7 +41,7 @@ func (e *Epoll) Add(fd int) error {
 	return nil
 }
 
-func (e *Epoll) Mode(fd int) error {
+func (e *epoll) Mode(fd int) error {
 
 	err := unix.EpollCtl(e.fd, syscall.EPOLL_CTL_MOD, fd, &unix.EpollEvent{Events: unix.POLLIN | unix.POLLHUP, Fd: int32(fd)})
 	if err != nil {
@@ -50,7 +50,7 @@ func (e *Epoll) Mode(fd int) error {
 	return nil
 }
 
-func (e *Epoll) Remove(fd int) error {
+func (e *epoll) Remove(fd int) error {
 	err := unix.EpollCtl(e.fd, syscall.EPOLL_CTL_DEL, fd, nil)
 	if err != nil {
 		return err
@@ -58,7 +58,7 @@ func (e *Epoll) Remove(fd int) error {
 	return nil
 }
 
-func (e *Epoll) Wait() ([]int, error) {
+func (e *epoll) Wait() ([]int, error) {
 
 	var fds []int
 
