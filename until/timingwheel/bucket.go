@@ -2,20 +2,22 @@ package timingwheel
 
 import (
 	"container/list"
-	"reflect"
+	//"reflect"
 	"sync"
 	"sync/atomic"
 	"unsafe"
 )
 
-type GrapeExecFn interface{}
+//type GrapeExecFn interface{}
 
 // Timer represents a single event. When the Timer expires, the given
 // task will be executed.
 type Timer struct {
 	expiration int64 // in milliseconds
-	task       GrapeExecFn
-	args       []reflect.Value
+	//task       GrapeExecFn
+	//args       []reflect.Value
+	task func(int)
+	args int
 
 	// The bucket that holds the list to which this timer's element belongs.
 	//

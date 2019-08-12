@@ -291,7 +291,11 @@ func (cw *TCPConn) StartHeartbeatTimer() {
 }
 
 func (cw *TCPConn) StopHeartbeatTimer() {
-    cw.hbTimer.Stop()
+    if cw.hbTimer != nil {
+        cw.hbTimer.Stop()
+    }
+    cw.hbTimer = nil
+
 }
 
 func (cw *TCPConn) ProcessTimeOut(timeType int) {

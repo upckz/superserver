@@ -5,6 +5,7 @@ import (
     "errors"
     "fmt"
     "github.com/orcaman/concurrent-map"
+    "superserver/until/common"
     log "superserver/until/czlog"
     "superserver/until/timingwheel"
     "time"
@@ -33,10 +34,11 @@ type Instance struct {
     clientOnConnectCh chan int            //同时建立连接数
     clientReadCh      chan *CliMsgWrapper //读chan 大小
 
-    ctx        context.Context
-    cancel     context.CancelFunc
-    epoller    *epoll
-    timerWheel *timingwheel.TimingWheel
+    ctx           context.Context
+    cancel        context.CancelFunc
+    epoller       *epoll
+    timerWheel    *timingwheel.TimingWheel
+    netIdentifier *common.AtomicUint64
 }
 
 //newInstance
@@ -50,6 +52,7 @@ func NewClientInstance(ctx context.Context, dataSize int32) *Instance {
         clientReadCh:      make(chan *CliMsgWrapper, dataSize),
         epoller:           nil,
         timerWheel:        timingwheel.NewTimingWheel(time.Millisecond, 20),
+        netIdentifier:     common.NewAtomicUint64(1),
     }
     i.ctx, i.cancel = context.WithCancel(ctx)
 
@@ -66,9 +69,12 @@ func NewClientInstance(ctx context.Context, dataSize int32) *Instance {
 }
 
 //add client
-func (i *Instance) AddClientWith(cfg *ClientConfig) error {
+func (i *Instance) AddClientWith(cfg *ClientConfig, nn int) error {
+
+    idx := i.netIdentifier.GetAndIncrement() + uint64(nn)
     cli := NewClient(i, cfg)
     if cli != nil {
+        cli.id = idx
         return i.AddMapCli(cli)
     }
     return errors.New("add client error")

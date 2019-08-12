@@ -2,8 +2,7 @@ package timingwheel
 
 import (
 	"errors"
-	"fmt"
-	"reflect"
+	//"reflect"
 	"superserver/until/timingwheel/delayqueue"
 	"sync/atomic"
 	"time"
@@ -40,7 +39,6 @@ func NewTimingWheel(tick time.Duration, wheelSize int64) *TimingWheel {
 
 	startMs := timeToMs(time.Now())
 
-	fmt.Printf("ooooooooooooo...\n")
 	return newTimingWheel(
 		tickMs,
 		wheelSize,
@@ -117,9 +115,10 @@ func (tw *TimingWheel) addOrRun(t *Timer) {
 
 		// Like the standard time.AfterFunc (https://golang.org/pkg/time/#AfterFunc),
 		// always execute the timer's task in its own goroutine.
-		fmt.Printf("------------------------\n")
+
 		go func() {
-			reflect.ValueOf(t.task).Call(t.args) // 正确调用
+			//reflect.ValueOf(t.task).Call(t.args) // 正确调用
+			t.task(t.args)
 		}()
 	}
 }
@@ -170,34 +169,34 @@ func (tw *TimingWheel) Stop() {
 
 // AfterFunc waits for the duration to elapse and then calls f in its own goroutine.
 // It returns a Timer that can be used to cancel the call using its Stop method.
-func (tw *TimingWheel) AfterFunc(d time.Duration, fn GrapeExecFn, args ...interface{}) *Timer {
+func (tw *TimingWheel) AfterFunc(d time.Duration, fn func(int), args int) *Timer {
 
-	re := reflect.TypeOf(fn) // 获得对象类型,从而知道有多少个参数
+	// re := reflect.TypeOf(fn) // 获得对象类型,从而知道有多少个参数
 
-	if re.Kind() != reflect.Func {
-		return nil
-	}
+	// if re.Kind() != reflect.Func {
+	// 	return nil
+	// }
 
-	argArr := []interface{}(args) // 先把参数都转成ARRAY
+	// argArr := []interface{}(args) // 先把参数都转成ARRAY
 
-	if len(argArr) < re.NumIn() {
-		return nil
-	}
+	// if len(argArr) < re.NumIn() {
+	// 	return nil
+	// }
 
-	// 解析全部参数
-	var in = make([]reflect.Value, re.NumIn()) //MAKE要保存的参数
-	for i := 0; i < re.NumIn(); i++ {
-		argType := re.In(i)
-		if argType != reflect.TypeOf(argArr[i]) {
-			return nil
-		}
-		in[i] = reflect.ValueOf(argArr[i]) // 参数保存下来
-	}
+	// // 解析全部参数
+	// var in = make([]reflect.Value, re.NumIn()) //MAKE要保存的参数
+	// for i := 0; i < re.NumIn(); i++ {
+	// 	argType := re.In(i)
+	// 	if argType != reflect.TypeOf(argArr[i]) {
+	// 		return nil
+	// 	}
+	// 	in[i] = reflect.ValueOf(argArr[i]) // 参数保存下来
+	// }
 
 	t := &Timer{
 		expiration: timeToMs(time.Now().Add(d)),
 		task:       fn,
-		args:       in,
+		args:       args,
 	}
 	tw.addOrRun(t)
 	return t

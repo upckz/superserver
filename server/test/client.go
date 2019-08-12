@@ -4,8 +4,8 @@ import (
     "context"
     "flag"
     "fmt"
-    "net/http"
-    _ "net/http/pprof"
+    // "net/http"
+    // _ "net/http/pprof"
     "os"
     "runtime"
     "superserver/until/common"
@@ -64,7 +64,7 @@ func NewServer(cfg *Config) *Server {
 func (s *Server) Run() {
 
     cfg := &socket.ClientConfig{
-        HbTimeout:     10 * time.Second,
+        HbTimeout:     20 * time.Second,
         Ip:            s.cfg.IP,
         Port:          s.cfg.Port,
         Secert:        true,
@@ -72,8 +72,8 @@ func (s *Server) Run() {
     }
     go s.runRead()
 
-    for i := 0; i < 20000; i++ {
-        s.cliMgr.AddClientWith(cfg) //server作为客户端 ，管理所有的客户端连接请求, 是否加密访问
+    for i := 0; i < 5000; i++ {
+        s.cliMgr.AddClientWith(cfg, int(s.cfg.SvrID*20000)) //server作为客户端 ，管理所有的客户端连接请求, 是否加密访问
 
     }
 }
@@ -113,11 +113,11 @@ func main() {
         }
     }()
 
-    go func() {
-        if err := http.ListenAndServe(":6061", nil); err != nil {
-            log.Fatalf("pprof failed: %v", err)
-        }
-    }()
+    // go func() {
+    //     if err := http.ListenAndServe(":6061", nil); err != nil {
+    //         log.Fatalf("pprof failed: %v", err)
+    //     }
+    // }()
 
     logPath := flag.String("log", "./log/", "path for log file directory")
     strIp := flag.String("ip", "172.16.10.51", "listen ip")
