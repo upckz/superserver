@@ -51,7 +51,7 @@ func NewClientInstance(ctx context.Context, dataSize int32) *Instance {
         clientOnConnectCh: make(chan int, 100),
         clientReadCh:      make(chan *CliMsgWrapper, dataSize),
         epoller:           nil,
-        timerWheel:        timingwheel.NewTimingWheel(time.Millisecond, 20),
+        timerWheel:        timingwheel.NewTimingWheel(time.Millisecond, 64),
         netIdentifier:     common.NewAtomicUint64(1),
     }
     i.ctx, i.cancel = context.WithCancel(ctx)
@@ -64,7 +64,7 @@ func NewClientInstance(ctx context.Context, dataSize int32) *Instance {
     i.epoller = epoller
 
     go i.Start()
-    go i.timerWheel.Start()
+
     return i
 }
 
@@ -279,6 +279,9 @@ func (instance *Instance) Start() {
         instance.Close()
 
     }()
+
+    go i.timerWheel.Start()
+
     for {
         fds, err := instance.epoller.Wait()
         if err != nil {

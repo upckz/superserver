@@ -57,7 +57,7 @@ func NewServer(conf *Config) *Server {
         secert:     conf.Secert,
         lock:       &sync.RWMutex{},
         epoller:    make([]*epoll, 0),
-        timerWheel: timingwheel.NewTimingWheel(time.Millisecond, 20),
+        timerWheel: timingwheel.NewTimingWheel(time.Millisecond, 64),
     }
     s.ctx, s.cancel = context.WithCancel(conf.Ctx)
     s.SetName(fmt.Sprint(s))
