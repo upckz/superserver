@@ -66,7 +66,7 @@ func NewServer(cfg *Config) *Server {
         HbTimeout: 30 * time.Second,
         Secert:    true,
         Ctx:       s.ctx,
-        EpollNum:  1,
+        EpollNum:  10,
         OnConnect: func(netid int) {
             log.Debugf("Internal Server Connection[id:%d] connected", netid)
         },

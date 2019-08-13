@@ -303,6 +303,7 @@ func (cw *TCPConn) ProcessTimeOut(timeType int) {
     switch timeType {
     case HEAET_TIMER_OUT:
         log.Errorf("fd[%d] ip[%s] heart time[>%v] out", cw.fd, cw.rawConn.RemoteAddr().String(), cw.hbTimeout)
+        cw.DoRecv()
         cw.Close()
     default:
     }

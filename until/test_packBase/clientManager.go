@@ -1,4 +1,4 @@
-package socket
+package test
 
 import (
     "context"
@@ -10,12 +10,6 @@ import (
     "superserver/until/timingwheel"
     "time"
 )
-
-type CliMsgWrapper struct {
-    ID      int
-    Msg     *Message
-    SendAll bool
-}
 
 type ClientConfig struct {
     Ip            string        //连接的ip
@@ -30,9 +24,9 @@ type ClientConfig struct {
 }
 
 type Instance struct {
-    clientMap         cmap.ConcurrentMap  //管理client map
-    clientOnConnectCh chan int            //同时建立连接数
-    clientReadCh      chan *CliMsgWrapper //读chan 大小
+    clientMap         cmap.ConcurrentMap   //管理client map
+    clientOnConnectCh chan int             //同时建立连接数
+    clientReadCh      chan *NETInputPacket //读chan 大小
 
     ctx           context.Context
     cancel        context.CancelFunc
@@ -49,7 +43,7 @@ func NewClientInstance(ctx context.Context, dataSize int32) *Instance {
     i := &Instance{
         clientMap:         cmap.New(),
         clientOnConnectCh: make(chan int, 100),
-        clientReadCh:      make(chan *CliMsgWrapper, dataSize),
+        clientReadCh:      make(chan *NETInputPacket, dataSize),
         epoller:           nil,
         timerWheel:        timingwheel.NewTimingWheel(time.Millisecond, 20),
         netIdentifier:     common.NewAtomicUint64(1),
@@ -72,9 +66,8 @@ func NewClientInstance(ctx context.Context, dataSize int32) *Instance {
 func (i *Instance) AddClientWith(cfg *ClientConfig, nn int) error {
 
     idx := i.netIdentifier.GetAndIncrement() + uint64(nn)
-    cli := NewClient(i, cfg)
+    cli := NewClient(i, cfg, idx)
     if cli != nil {
-        cli.id = idx
         return i.AddMapCli(cli)
     }
     return errors.New("add client error")
@@ -213,45 +206,14 @@ func (i *Instance) OnConnect() <-chan int {
 }
 
 //on read pack
-func (i *Instance) OnReadPacket() <-chan *CliMsgWrapper {
+func (i *Instance) OnReadPacket() <-chan *NETInputPacket {
     return i.clientReadCh
 }
 
 //write pkg
-func (i *Instance) OnWritePacket(msg *CliMsgWrapper) {
+func (i *Instance) OnWritePacket(msg *NETInputPacket) {
     log.Debugf("------ readchan len[%d] [%v]", len(i.clientReadCh), msg)
     i.clientReadCh <- msg
-}
-
-//send pack
-func (i *Instance) WritePacket(pkt *CliMsgWrapper) (bool, int) {
-    var cli *Client
-
-    if pkt.SendAll {
-        var count int
-        for item := range i.clientMap.IterBuffered() {
-            val := item.Val
-            if val == nil {
-                continue
-            }
-            cli := val.(*Client)
-            if cli.HasConnect() {
-                count++
-                cli.SendMessage(pkt.Msg)
-            }
-        }
-        return true, count
-
-    } else {
-        if pkt.ID != 0 {
-            cli = i.GetMapCli(pkt.ID)
-        }
-        if cli != nil {
-            cli.SendMessage(pkt.Msg)
-            return true, cli.GetFD()
-        }
-    }
-    return false, 0
 }
 
 //close
@@ -294,7 +256,7 @@ func (instance *Instance) Start() {
                 if err != nil {
                     continue
                 }
-                instance.epoller.Mode(fd)
+                //instance.epoller.Mode(fd)
             } else {
                 log.Errorf("fd[%d] not find int server aaaaaaaa", fd)
             }

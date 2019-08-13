@@ -2,33 +2,56 @@ package main
 
 import (
     "fmt"
-    "superserver/until/timingwheel"
+    //"superserver/until/timingwheel"
     "time"
 )
 
-func fff(a int) {
-    fmt.Println("------------------ a=%d", a)
-}
+// func fff(a int) {
+//     fmt.Println("------------------ a=%d", a)
+// }
 
-func bb(a int) {
-    fmt.Println("------------------ a=", a)
-}
+// func bb(a int) {
+//     fmt.Println("------------------ a=", a)
+// }
+
+// type Server struct {
+//     timerWheel *timingwheel.TimingWheel
+// }
+
+type GF interface{}
 
 type Server struct {
-    timerWheel *timingwheel.TimingWheel
+    fn   GF
+    args []interface{}
+}
+
+func change(args ...interface{}) {
+
+    fmt.Println("----->", args)
+
+}
+
+func olld(a int, b string) {
+    fmt.Println(a, b)
 }
 
 func main() {
 
-    tw := timingwheel.NewTimingWheel(time.Millisecond, 20)
-    tw.Start()
-    defer tw.Stop()
+    // tw := timingwheel.NewTimingWheel(time.Millisecond, 20)
+    // tw.Start()
+    // defer tw.Stop()
 
-    for i := 0; i < 100; i++ {
-        tw.AfterFunc(1*time.Second, fff, i)
+    // tw.AfterFunc(1*time.Second, bb, 10000)
+
+    s := &Server{
+        fn:   change,
+        args: make([]interface{}, 0),
     }
 
-    tw.AfterFunc(1*time.Second, bb, 10000)
+    s.args = append(s.args, 100)
+    s.args = append(s.args, "hhhhhhhhhhhhhhh")
+
+    s.fn.(change)("1", "2", "3")
 
     //<-time.After(900 * time.Millisecond)
     // Stop the timer before it fires

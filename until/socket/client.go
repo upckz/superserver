@@ -515,7 +515,7 @@ func (c *Client) SendHeartbeatMsg() {
         return
     }
     msg := NewMessage(cmd.MsgHeartbeat, int32(c.id), make([]byte, 0))
-    log.Debugf("fd[%d] ip[%s] send heart [%v]", c.fd, c.conn.RemoteAddr().String(), msg)
+    //log.Debugf("fd[%d] ip[%s] send heart [%v]", c.fd, c.conn.RemoteAddr().String(), msg)
     c.SendMessage(msg)
     c.startHeartbeatTimer()
 
@@ -544,6 +544,8 @@ func (c *Client) SendMessage(msg *Message) error {
             log.Errorf("fd[%d] ip[%s] send err [%v]", c.fd, c.conn.RemoteAddr().String(), err)
             return err
         }
+        log.Debugf("fd[%d] ip[%s] send heart [%v]", c.fd, c.conn.RemoteAddr().String(), msg)
+
     }
 
     return nil

@@ -10,7 +10,7 @@ import (
     "runtime"
     "superserver/until/common"
     log "superserver/until/czlog"
-    "superserver/until/socket"
+    "superserver/until/test"
     "time"
 )
 
@@ -37,10 +37,8 @@ type Config struct {
 
 type Server struct {
     sigCh  chan os.Signal
-    cliMgr *socket.Instance
+    cliMgr *test.Instance
     cfg    *Config
-    sendCh chan *socket.ResponseWrapper
-    readCh chan *socket.MessageWrapper
     ctx    context.Context
     cancel context.CancelFunc
 }
@@ -48,22 +46,20 @@ type Server struct {
 func NewServer(cfg *Config) *Server {
 
     s := &Server{
-        cfg:    cfg,
-        sendCh: make(chan *socket.ResponseWrapper, 100),
-        readCh: make(chan *socket.MessageWrapper, 100),
-        sigCh:  make(chan os.Signal, 1),
+        cfg:   cfg,
+        sigCh: make(chan os.Signal, 1),
     }
 
     s.ctx, s.cancel = context.WithCancel(context.Background())
 
-    s.cliMgr = socket.NewClientInstance(s.ctx, 3000)
+    s.cliMgr = test.NewClientInstance(s.ctx, 3000)
 
     return s
 }
 
 func (s *Server) Run() {
 
-    cfg := &socket.ClientConfig{
+    cfg := &test.ClientConfig{
         HbTimeout:     20 * time.Second,
         Ip:            s.cfg.IP,
         Port:          s.cfg.Port,
@@ -122,7 +118,7 @@ func main() {
     logPath := flag.String("log", "./log/", "path for log file directory")
     strIp := flag.String("ip", "172.16.10.51", "listen ip")
     //strIp := flag.String("ip", "192.168.56.101", "listen ip")
-    strPort := flag.Int("port", 9100, "listen port")
+    strPort := flag.Int("port", 9990, "listen port")
     svid := flag.Int("svid", 1, "server svid. start from 1")
 
     flag.Parse()
