@@ -280,7 +280,7 @@ func (instance *Instance) Start() {
 
     }()
 
-    go i.timerWheel.Start()
+    go instance.timerWheel.Start()
 
     for {
         fds, err := instance.epoller.Wait()
