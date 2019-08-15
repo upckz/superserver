@@ -6,23 +6,18 @@ import (
     "fmt"
     // "net/http"
     // _ "net/http/pprof"
+    "github.com/sirupsen/logrus"
     "os"
     "runtime"
     "superserver/until/common"
-    log "superserver/until/czlog"
-    "superserver/until/test"
+    "superserver/until/log"
+    "superserver/until/socket"
     "time"
 )
 
 //cpu 自动确认使用核数
 func init() {
     runtime.GOMAXPROCS(runtime.NumCPU())
-
-}
-
-func runlog(path string) {
-    path = fmt.Sprintf("%s/testLog", path)
-    defer log.Start(log.LogFilePath(path), log.EveryDay, log.AlsoStdout, log.DebugLevel).Stop()
 
 }
 
@@ -37,7 +32,7 @@ type Config struct {
 
 type Server struct {
     sigCh  chan os.Signal
-    cliMgr *test.Instance
+    cliMgr *socket.Instance
     cfg    *Config
     ctx    context.Context
     cancel context.CancelFunc
@@ -52,14 +47,14 @@ func NewServer(cfg *Config) *Server {
 
     s.ctx, s.cancel = context.WithCancel(context.Background())
 
-    s.cliMgr = test.NewClientInstance(s.ctx, 3000)
+    s.cliMgr = socket.NewClientInstance(s.ctx, 3000)
 
     return s
 }
 
 func (s *Server) Run() {
 
-    cfg := &test.ClientConfig{
+    cfg := &socket.ClientConfig{
         HbTimeout:     20 * time.Second,
         Ip:            s.cfg.IP,
         Port:          s.cfg.Port,
@@ -78,25 +73,28 @@ func (s *Server) runRead() {
 
     defer func() {
         if p := recover(); p != nil {
-            log.Errorln(common.GlobalPanicLog(p))
+            log.WithFields(log.Fields{}).Panic(p)
         }
-        log.Debugf("runRead close success")
+        log.WithFields(log.Fields{}).Info("runRead close success")
     }()
-    log.Debugf("begin runRead....")
 
     for {
         select {
         case <-s.ctx.Done():
-            log.Debugf("receiving cancel signal from conn")
+            log.WithFields(log.Fields{}).Info("receiving cancel signal from conn")
+            //log.Debugf("receiving cancel signal from conn")
             return
         case pkt, ok := <-s.cliMgr.OnReadPacket():
             if ok {
-                log.Debugf("OnReadPacket....pkt[%v]", pkt)
+                log.WithFields(log.Fields{}).Info(pkt)
+                // log.Debugf("OnReadPacket....pkt[%v]", pkt)
             }
 
         case id, ok := <-s.cliMgr.OnConnect():
             if ok {
-                log.Debugf("OnConnect[%d]", id)
+                log.WithFields(log.Fields{
+                    "clinetid": id,
+                }).Info("connected")
             }
         }
     }
@@ -105,7 +103,7 @@ func (s *Server) runRead() {
 func main() {
     defer func() {
         if err := recover(); err != nil {
-            log.Errorln(common.GlobalPanicLog(err))
+            log.WithFields(log.Fields{}).Panic(err)
         }
     }()
 
@@ -115,29 +113,29 @@ func main() {
     //     }
     // }()
 
-    logPath := flag.String("log", "./log/", "path for log file directory")
+    logPath := flag.String("log", "./log/", "log file path")
+    logLevel := flag.String("logLevel", "DEBUG", "日志等级:INFO,PANIC,FATAL,ERROR,WARN,DEBUG")
     strIp := flag.String("ip", "172.16.10.51", "listen ip")
-    //strIp := flag.String("ip", "192.168.56.101", "listen ip")
-    strPort := flag.Int("port", 9990, "listen port")
+    //strIp := flag.String("ip", "192.168.56.102", "listen ip")
+    strPort := flag.Int("port", 9100, "listen port")
     svid := flag.Int("svid", 1, "server svid. start from 1")
 
     flag.Parse()
 
-    runlog(*logPath)
+    initLog(*logPath, *logLevel)
 
     if *strIp == "" {
-        log.Fatalln("You Need Specify The ip with -ip")
+        fmt.Println("You Need Specify The ip with -ip")
         return
     }
     if *svid == 0 {
-        log.Fatalln("you must specify the server svid with -svid")
+        fmt.Println("you must specify the server svid with -svid")
         return
     }
     if *strPort == 0 {
-        log.Fatalln("you must specify the server port with -port")
+        fmt.Println("you must specify the server port with -port")
         return
     }
-    log.Debugf("sss=%d", *svid)
 
     cfg := &Config{
         SvrID:    int32(*svid),
@@ -149,6 +147,25 @@ func main() {
     server := NewServer(cfg)
     go server.Run()
     common.WaitSignalSynchronized()
-    log.Errorln("server Exit!")
+    log.WithFields(log.Fields{}).Info("server exit")
+
+}
+
+func initLog(path string, logLevel string) {
+    switch logLevel {
+    case "INFO":
+        log.SetLevel(logrus.InfoLevel)
+    case "PANIC":
+        log.SetLevel(logrus.PanicLevel)
+    case "FATAL":
+        log.SetLevel(logrus.FatalLevel)
+    case "ERROR":
+        log.SetLevel(logrus.ErrorLevel)
+    case "WARN":
+        log.SetLevel(logrus.WarnLevel)
+    default:
+        log.SetLevel(logrus.DebugLevel)
+    }
+    log.SetPath(path, "client", 5)
 
 }

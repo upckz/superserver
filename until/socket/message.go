@@ -30,7 +30,7 @@ func (msg *Message) GetUid() int32 {
 }
 
 func (msg *Message) String() string {
-    return fmt.Sprintf("cmd:0x%04x UID:%d  datalen:%d", msg.GetCmd(), msg.GetUid(), len(msg.GetData()))
+    return fmt.Sprintf("cmd:0x%04x UID:%d datalen:%d", msg.GetCmd(), msg.GetUid(), len(msg.GetData()))
 }
 
 type MessageWrapper struct {

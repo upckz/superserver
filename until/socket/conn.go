@@ -7,9 +7,9 @@ import (
     "net"
     "strconv"
     "superserver/cmd"
-    "superserver/until/common"
+    //"superserver/until/common"
     "superserver/until/crypto/dh64"
-    log "superserver/until/czlog"
+    "superserver/until/log"
     "superserver/until/timingwheel"
     "sync"
     "time"
@@ -95,23 +95,33 @@ func (cw *TCPConn) Write(message *Message) error {
 func (cw *TCPConn) Connect() {
     onConnect := cw.server.config.OnConnect
     if onConnect != nil {
-        log.Debugf("fd[%d] [%v] connect success, total conn[%d]", cw.fd, cw.rawConn.RemoteAddr().String(), cw.server.GetTotalConnect())
+        log.WithFields(log.Fields{
+            "total conn": cw.server.GetTotalConnect(),
+            "fd":         cw.fd,
+            "ip":         cw.rawConn.RemoteAddr().String(),
+        }).Debug(" connect success")
         onConnect(cw.fd)
     }
 }
 
 func (cw *TCPConn) DoRecv() error {
 
-    log.Debugf("DoRecv begin, fd[%d] <%v> ", cw.fd, cw.rawConn.RemoteAddr())
     var buf = make([]byte, 1024*64)
     n, err := cw.rawConn.Read(buf)
     if err != nil {
-        log.Errorf("connection close, fd[%d] <%v> err[%v]", cw.fd, cw.rawConn.RemoteAddr(), err)
+        log.WithFields(log.Fields{
+            "fd":  cw.fd,
+            "err": err,
+            "ip":  cw.rawConn.RemoteAddr().String(),
+        }).Error("connection close")
         cw.Close()
         return err
     }
     if n == 0 {
-        log.Infof("connection close, fd[%d] <%v> ", cw.fd, cw.rawConn.RemoteAddr())
+        log.WithFields(log.Fields{
+            "fd": cw.fd,
+            "ip": cw.rawConn.RemoteAddr().String(),
+        }).Info("connection close")
         cw.Close()
         return errors.New("connnect close")
     }
@@ -119,7 +129,11 @@ func (cw *TCPConn) DoRecv() error {
     for len(cw.cache) > 0 {
         pkglen := ParsePacket(cw.cache)
         if pkglen < 0 {
-            log.Errorf("fd[%d] [%s] recv error pkg", cw.fd, cw.rawConn.RemoteAddr())
+            log.WithFields(log.Fields{
+                "fd": cw.fd,
+                "ip": cw.rawConn.RemoteAddr().String(),
+            }).Error("recv error pkg")
+
             cw.Close()
             return err
         } else if pkglen == 0 {
@@ -130,7 +144,10 @@ func (cw *TCPConn) DoRecv() error {
                 msg, err := OnPacketComplete(cw.cache[0:pkglen], cw.secert, cw.secertKey)
 
                 if err != nil || msg == nil {
-                    log.Errorf("fd[%d] ip[%s] input fatal error, ", cw.fd, cw.rawConn.RemoteAddr().String())
+                    log.WithFields(log.Fields{
+                        "fd": cw.fd,
+                        "ip": cw.rawConn.RemoteAddr().String(),
+                    }).Error("input fatal error")
                     cw.Close()
                     return err
                 } else {
@@ -160,22 +177,38 @@ func (cw *TCPConn) BulidEncryptionConnction(buff []byte) error {
         bufReader := bytes.NewReader(buff)
         err := binary.Read(bufReader, binary.BigEndian, &head.Length)
         if err != nil {
-            log.Errorf("fd[%d] %s read headlen err[%v]", cw.fd, cw.rawConn.RemoteAddr().String(), err.Error())
+            log.WithFields(log.Fields{
+                "fd":  cw.fd,
+                "err": err.Error(),
+                "ip":  cw.rawConn.RemoteAddr().String(),
+            }).Error("read headlen error")
+
             return err
         }
         err = binary.Read(bufReader, binary.BigEndian, &head.Ack)
         if err != nil {
-            log.Errorf("fd[%d] %s read head ack err[%v]", cw.fd, cw.rawConn.RemoteAddr().String(), err.Error())
+            log.WithFields(log.Fields{
+                "fd":  cw.fd,
+                "err": err.Error(),
+                "ip":  cw.rawConn.RemoteAddr().String(),
+            }).Error(" read head ack error")
             return err
         }
         err = binary.Read(bufReader, binary.BigEndian, &head.Data)
         if err != nil {
-            log.Errorf("fd[%d] %s read head ack err[%v]", cw.fd, cw.rawConn.RemoteAddr().String(), err.Error())
+            log.WithFields(log.Fields{
+                "fd":  cw.fd,
+                "err": err.Error(),
+                "ip":  cw.rawConn.RemoteAddr().String(),
+            }).Error("read head ack err")
             return err
         }
         if head.Ack == 1 {
             if len(head.Data) != 2 || head.Data[0] != 'S' || head.Data[1] != 'W' {
-                log.Errorf("fd[%d] %s,recv is not 'SW' error ", cw.fd, cw.rawConn.RemoteAddr().String())
+                log.WithFields(log.Fields{
+                    "fd": cw.fd,
+                    "ip": cw.rawConn.RemoteAddr().String(),
+                }).Error("recv is not 'SW' error")
                 return err
             }
             cw.privateKey, cw.publicKey = dh64.KeyPair()
@@ -186,7 +219,11 @@ func (cw *TCPConn) BulidEncryptionConnction(buff []byte) error {
             binary.BigEndian.PutUint64(wb[5:], uint64(cw.publicKey))
 
             if _, err := cw.rawConn.Write(wb); err != nil {
-                log.Errorf("fd[%d] %s, error writing data %v\n", cw.fd, cw.rawConn.RemoteAddr().String(), err.Error())
+                log.WithFields(log.Fields{
+                    "fd":  cw.fd,
+                    "err": err.Error(),
+                    "ip":  cw.rawConn.RemoteAddr().String(),
+                }).Error("writing data error")
                 return err
             }
 
@@ -195,7 +232,11 @@ func (cw *TCPConn) BulidEncryptionConnction(buff []byte) error {
 
             secert, err := dh64.Secret(cw.privateKey, uint64(clientPublicKey))
             if err != nil {
-                log.Errorf("fd[%d] %s, DH64 secert Error:%v", cw.fd, cw.rawConn.RemoteAddr().String(), err.Error())
+                log.WithFields(log.Fields{
+                    "fd":  cw.fd,
+                    "err": err.Error(),
+                    "ip":  cw.rawConn.RemoteAddr().String(),
+                }).Error("DH64 secert Error")
                 cw.Close()
                 return err
             }
@@ -217,18 +258,26 @@ func (cw *TCPConn) BulidEncryptionConnction(buff []byte) error {
                 tempInt, _ := strconv.Atoi(secertStr[i : i+2])
                 keyBuffer.WriteRune(rune(tempInt))
             }
+            log.WithFields(log.Fields{
+                "fd":              cw.fd,
+                "publicKey":       cw.publicKey,
+                "clientPublicKey": clientPublicKey,
+                "secert":          secert,
+                "secertStr":       secertStr,
+                "ip":              cw.rawConn.RemoteAddr().String(),
+                "total conn":      cw.server.GetTotalConnect(),
+            }).Info("connect success")
 
-            log.Debugf("fd[%d] connectHandler DH64 serverPublicKey[%v] clientPublicKey[%v] secert[%v] secertStr[%v] ip[%v] connect",
-                cw.fd, cw.publicKey, clientPublicKey, secert, secertStr, cw.rawConn.RemoteAddr().String())
-
-            log.Infof("fd[%d] [%v] connect success, total conn[%d]", cw.fd, cw.rawConn.RemoteAddr().String(), cw.server.GetTotalConnect())
             sw := keyBuffer.Bytes()
             cw.secertKey = make([]byte, len(sw))
             copy(cw.secertKey, sw)
             cw.hasRecvFlag = true
             cw.Connect()
         } else {
-            log.Errorf("fd[%d] %s, ack", cw.fd, cw.rawConn.RemoteAddr().String())
+            log.WithFields(log.Fields{
+                "fd": cw.fd,
+                "ip": cw.rawConn.RemoteAddr().String(),
+            }).Error("ack Error")
             cw.Close()
             return err
         }
@@ -239,7 +288,11 @@ func (cw *TCPConn) BulidEncryptionConnction(buff []byte) error {
 
 func (cw *TCPConn) ProcessDoneMsg(msg *Message) int {
 
-    log.Warnf("fd[%d]  ip[%s] recv message %v\n", cw.fd, cw.rawConn.RemoteAddr().String(), msg)
+    log.WithFields(log.Fields{
+        "fd": cw.fd,
+        "ip": cw.rawConn.RemoteAddr().String(),
+    }).Debug(msg)
+
     if msg.GetCmd() == cmd.MsgHeartbeat {
         cw.SendHeartbeatMsg(msg.GetUid())
     }
@@ -251,11 +304,7 @@ func (cw *TCPConn) ProcessDoneMsg(msg *Message) int {
         SourceIP: cw.rawConn.RemoteAddr().String(),
     }
 
-    if len(cw.readCh) > 1000 {
-        log.Errorf("readch max 1000 error[%d]", len(cw.readCh))
-    }
     cw.readCh <- mw
-
     return 0
 
 }
@@ -263,7 +312,11 @@ func (cw *TCPConn) ProcessDoneMsg(msg *Message) int {
 // Close gracefully closes the client connection.
 func (cw *TCPConn) Close() {
     cw.once.Do(func() {
-        log.Infof("conn close, < %v>\n", cw.rawConn.RemoteAddr())
+        log.WithFields(log.Fields{
+            "fd": cw.fd,
+            "ip": cw.rawConn.RemoteAddr().String(),
+        }).Info("conn close")
+
         // close net.Conn, any blocked read or write operation will be unblocked and
         // return errors.
         onClose := cw.server.config.OnClose
@@ -272,7 +325,12 @@ func (cw *TCPConn) Close() {
         }
         cw.StopAllTimer()
         if err := cw.epoller.Remove(cw.GetFD()); err != nil {
-            log.Errorf("<%v> failed to remove %v", cw.GetConn().RemoteAddr(), err)
+            log.WithFields(log.Fields{
+                "fd":  cw.fd,
+                "err": err,
+                "ip":  cw.rawConn.RemoteAddr().String(),
+            }).Error("failed to remove")
+
         }
         cw.server.RemovConn(cw.fd)
         cw.rawConn.Close()
@@ -302,8 +360,11 @@ func (cw *TCPConn) ProcessTimeOut(timeType int) {
 
     switch timeType {
     case HEAET_TIMER_OUT:
-        log.Errorf("fd[%d] ip[%s] heart time[>%v] out", cw.fd, cw.rawConn.RemoteAddr().String(), cw.hbTimeout)
-        cw.DoRecv()
+        log.WithFields(log.Fields{
+            "fd":            cw.fd,
+            "heartTimeOut ": cw.hbTimeout,
+            "ip":            cw.rawConn.RemoteAddr().String(),
+        }).Error("heartTimeOut")
         cw.Close()
     default:
     }
@@ -313,10 +374,20 @@ func (cw *TCPConn) SendHeartbeatMsg(uid int32) {
     msg := NewMessage(cmd.MsgHeartbeat, uid, make([]byte, 0))
     err := cw.Write(msg)
     if err != nil {
-        log.Errorf("fd[%d] uid[%d] ip[%s] send heart error", cw.fd, uid, cw.rawConn.RemoteAddr().String())
+        log.WithFields(log.Fields{
+            "uid": uid,
+            "fd":  cw.fd,
+            "ip":  cw.rawConn.RemoteAddr().String(),
+        }).Error("send heart error")
+
         return
     } else {
-        log.Debugf("fd[%d] [uid[%d] ip[%s] send pkg[%v]", cw.fd, uid, cw.rawConn.RemoteAddr().String(), msg)
+        log.WithFields(log.Fields{
+            "uid":  uid,
+            "fd":   cw.fd,
+            "ip":   cw.rawConn.RemoteAddr().String(),
+            "send": "success",
+        }).Debug(msg)
     }
 
 }
@@ -324,7 +395,11 @@ func (cw *TCPConn) SendHeartbeatMsg(uid int32) {
 func asyncWrite(cw *TCPConn, m *Message) error {
     defer func() error {
         if p := recover(); p != nil {
-            log.Errorln(common.GlobalPanicLog(p))
+            // log.Errorln(common.GlobalPanicLog(p))
+            log.WithFields(log.Fields{
+                "fd": cw.fd,
+                "ip": cw.rawConn.RemoteAddr().String(),
+            }).Panic(p)
             return ErrServerClosed
         }
         return nil
@@ -345,7 +420,11 @@ func asyncWrite(cw *TCPConn, m *Message) error {
     }
     _, err = cw.rawConn.Write(pkt)
     if err != nil {
-        log.Errorf("error writing data %v\n", err)
+        log.WithFields(log.Fields{
+            "fd":  cw.fd,
+            "err": err,
+            "ip":  cw.rawConn.RemoteAddr().String(),
+        }).Error("error writing data")
         cw.Close()
         return err
     }

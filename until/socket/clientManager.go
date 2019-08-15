@@ -6,7 +6,7 @@ import (
     "fmt"
     "github.com/orcaman/concurrent-map"
     "superserver/until/common"
-    log "superserver/until/czlog"
+    "superserver/until/log"
     "superserver/until/timingwheel"
     "time"
 )
@@ -219,7 +219,6 @@ func (i *Instance) OnReadPacket() <-chan *CliMsgWrapper {
 
 //write pkg
 func (i *Instance) OnWritePacket(msg *CliMsgWrapper) {
-    log.Debugf("------ readchan len[%d] [%v]", len(i.clientReadCh), msg)
     i.clientReadCh <- msg
 }
 
@@ -275,7 +274,7 @@ func (instance *Instance) Start() {
 
     defer func() {
         instance.cancel()
-        log.Debugf("exit instance")
+        log.WithFields(log.Fields{}).Debug("exit start")
         instance.Close()
 
     }()
@@ -285,7 +284,9 @@ func (instance *Instance) Start() {
     for {
         fds, err := instance.epoller.Wait()
         if err != nil {
-            log.Errorf("failed to epoll wait %v", err)
+            log.WithFields(log.Fields{
+                "err": err,
+            }).Error("failed to epoll wait")
             continue
         }
         nums := len(fds)
@@ -299,7 +300,9 @@ func (instance *Instance) Start() {
                 }
                 instance.epoller.Mode(fd)
             } else {
-                log.Errorf("fd[%d] not find int server aaaaaaaa", fd)
+                log.WithFields(log.Fields{
+                    "fd": fd,
+                }).Error("not find int server")
             }
         }
         select {

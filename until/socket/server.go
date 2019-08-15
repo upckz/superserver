@@ -7,8 +7,7 @@ import (
     "strconv"
     "sync"
 
-    "superserver/until/common"
-    log "superserver/until/czlog"
+    "superserver/until/log"
 
     "github.com/libp2p/go-reuseport"
     "superserver/until/timingwheel"
@@ -77,9 +76,10 @@ func (s *Server) startEpoll() {
 
     defer func() {
         if p := recover(); p != nil {
-            log.Errorln(common.GlobalPanicLog(p))
+            log.WithFields(log.Fields{}).Panic(p)
         }
-        log.Debugf("exit startEpoll")
+        log.WithFields(log.Fields{}).Info("exit startEpoll")
+        s.Close()
     }()
 
     addr := s.config.IP + ":" + strconv.Itoa(int(s.config.Port))
@@ -87,21 +87,24 @@ func (s *Server) startEpoll() {
     var err error
     s.listener, err = reuseport.Listen("tcp", addr)
     if err != nil {
-        log.Errorf("Error:%v", err)
+        log.WithFields(log.Fields{}).Error(err)
         panic(err)
         return
     }
 
     epoller, err := MkEpoll()
     if err != nil {
-        log.Errorf("Error:%v", err)
+        log.WithFields(log.Fields{}).Error(err)
         panic(err)
         return
     }
 
     s.insertEpoll(epoller)
 
-    log.Infof("Sever[%s] start listen on: %v", s.name, s.listener.Addr())
+    log.WithFields(log.Fields{
+        "server": s.name,
+        "addr":   s.listener.Addr().String(),
+    }).Info("start listen")
 
     go s.Start(epoller)
 
@@ -109,11 +112,15 @@ func (s *Server) startEpoll() {
         conn, e := s.listener.Accept()
         if e != nil {
             if ne, ok := e.(net.Error); ok && ne.Temporary() {
-                log.Errorf("accept temp err: %v", ne)
+                log.WithFields(log.Fields{
+                    "err": ne,
+                }).Error("accept error")
                 continue
             }
+            log.WithFields(log.Fields{
+                "err": e,
+            }).Error("accept error")
 
-            log.Errorf("accept err: %v", e)
             return
         }
         fd := SocketFD(conn)
@@ -123,24 +130,30 @@ func (s *Server) startEpoll() {
 
         err := epoller.Add(fd)
         if err != nil {
-            log.Errorf("failed to add connection %v", err)
+            log.WithFields(log.Fields{
+                "err": err,
+            }).Error("failed to add connection")
             sc.Close()
         }
-        log.Infof("New connection fd[%d] incoming <%v>", fd, conn.RemoteAddr())
+        log.WithFields(log.Fields{
+            "fd":   fd,
+            "addr": conn.RemoteAddr().String(),
+        }).Info("New connection incoming")
     }
 
 }
 
 func (s *Server) Start(epoller *epoll) {
     defer func() {
-        log.Debugf("exit start")
-        s.Close()
+        log.WithFields(log.Fields{}).Debug("exit start")
     }()
 
     for {
         fds, err := epoller.Wait()
         if err != nil {
-            log.Errorf("failed to epoll wait %v", err)
+            log.WithFields(log.Fields{
+                "err": err,
+            }).Error("failed to epoll wait")
             continue
         }
         nums := len(fds)
@@ -153,7 +166,9 @@ func (s *Server) Start(epoller *epoll) {
                     epoller.Mode(fd)
                 }
             } else {
-                log.Errorf("fd[%d] not find int server aaaaaaaa", fd)
+                log.WithFields(log.Fields{
+                    "fd": fd,
+                }).Error("not find int server")
             }
         }
         select {
@@ -202,7 +217,9 @@ func (s *Server) Broadcast(msg *Message) {
     conns := s.conns.GetAll()
     for _, c := range conns {
         if err := c.Write(msg); err != nil {
-            log.Errorf("broadcast error %v\n", err)
+            log.WithFields(log.Fields{
+                "err": err,
+            }).Error("broadcast error")
         }
     }
 }
@@ -228,9 +245,13 @@ func (s *Server) Close() {
     for _, epoller := range s.epoller {
         epoller.Close()
     }
+    log.WithFields(log.Fields{
+        "name": s.name,
+    }).Debug("Server Has Close")
+
     s.listener.Close()
     s.timerWheel.Stop()
-    log.Debugln("Server Has Close")
+
 }
 
 func (s *Server) CloseConn(id int) {

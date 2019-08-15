@@ -1,22 +1,45 @@
 package main
 
 import (
-    "fmt"
-    "superserver/until/socket"
+    log "github.com/sirupsen/logrus"
+    "os"
 )
 
+func init() {
+    // Log as JSON instead of the default ASCII formatter.
+    log.SetFormatter(&log.JSONFormatter{})
+
+    // Output to stdout instead of the default stderr
+    // Can be any io.Writer, see below for File example
+    log.SetOutput(os.Stdout)
+
+    // Only log the warning severity or above.
+    log.SetLevel(log.WarnLevel)
+}
+
 func main() {
+    log.WithFields(log.Fields{
+        "animal": "walrus",
+        "size":   10,
+    }).Info("A group of walrus emerges from the ocean")
 
-    s := socket.NewServerManger()
+    log.WithFields(log.Fields{
+        "omg":    true,
+        "number": 122,
+    }).Warn("The group's number increased tremendously!")
 
-    s.InsertServer(1, 200, 201, 1, 10)
+    log.WithFields(log.Fields{
+        "omg":    true,
+        "number": 100,
+    }).Fatal("The ice breaks!")
 
-    fmt.Println(s.GetConnId(1, 201, 201, 1))
+    // A common pattern is to re-use fields between logging statements by re-using
+    // the logrus.Entry returned from WithFields()
+    contextLogger := log.WithFields(log.Fields{
+        "common": "this is a common field",
+        "other":  "I also should be logged always",
+    })
 
-    // fmt.Println(s.FindServer(1))
-    // fmt.Println(s.FindServer(1).FindServer(200))
-    // fmt.Println(s.FindServer(1).FindServer(200).FindServer(201))
-    // s.Remove(1, 200, 201, 1)
-    // fmt.Println(s.FindServer(1).FindServer(201).FindServer(201).GetConnId(1))
-
+    contextLogger.Info("I'll be logged with common and other field")
+    contextLogger.Info("Me too")
 }
