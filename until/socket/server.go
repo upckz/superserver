@@ -183,7 +183,7 @@ func (s *Server) Start(epoller *epoll) {
 func (s *Server) Run() {
     setLimit()
 
-    if s.config.EpollNum < 0 {
+    if s.config.EpollNum < 0 || s.config.EpollNum > 100 {
         s.config.EpollNum = 1
     }
     for i := 0; i < int(s.config.EpollNum); i++ {
@@ -214,14 +214,18 @@ func (s *Server) SendClientMsg(id int, msg *Message) error {
 
 // Broadcast broadcasts message to all server connections managed.
 func (s *Server) Broadcast(msg *Message) {
-    conns := s.conns.GetAll()
-    for _, c := range conns {
-        if err := c.Write(msg); err != nil {
-            log.WithFields(log.Fields{
-                "err": err,
-            }).Error("broadcast error")
+
+    go func() {
+        conns := s.conns.GetAll()
+        for _, c := range conns {
+            if err := c.Write(msg); err != nil {
+                log.WithFields(log.Fields{
+                    "err": err,
+                }).Error("broadcast error")
+            }
         }
-    }
+    }()
+
 }
 
 // ConnsMap returns connections managed.
